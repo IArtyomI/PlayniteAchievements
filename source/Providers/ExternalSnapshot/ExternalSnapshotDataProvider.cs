@@ -2,6 +2,7 @@ using Playnite.SDK;
 using Playnite.SDK.Models;
 using PlayniteAchievements.Models;
 using PlayniteAchievements.Models.Achievements;
+using PlayniteAchievements.Providers.Overrides;
 using PlayniteAchievements.Providers.Settings;
 using PlayniteAchievements.Services.Refresh;
 using System;
@@ -13,11 +14,12 @@ using System.Threading.Tasks;
 
 namespace PlayniteAchievements.Providers.ExternalSnapshot
 {
-    public sealed class ExternalSnapshotDataProvider : DataProviderBase<ExternalSnapshotSettings>, IDataProvider
+    public sealed class ExternalSnapshotDataProvider : DataProviderBase<ExternalSnapshotSettings>, IDataProvider, IProviderOverride
     {
         public const string Key = "ExternalSnapshot";
 
         private static readonly TimeSpan CatalogCacheDuration = TimeSpan.FromSeconds(2);
+        private static readonly ProviderOverrideDescriptor ProviderOverride = ProviderOverrideDescriptor.None();
 
         private readonly ILogger _logger;
         private readonly IPlayniteAPI _playniteApi;
@@ -47,6 +49,7 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
         public bool IsAuthenticated => true;
         public ISessionManager AuthSession => null;
         public PlayniteAchievements.Models.Friends.IFriendsProvider Friends => null;
+        public ProviderOverrideDescriptor OverrideDescriptor => ProviderOverride;
 
         public bool IsCapable(Game game)
         {
