@@ -338,6 +338,7 @@ namespace PlayniteAchievements.Services.GameCustomData
                     };
 
                 case "FFXIV":
+                case "ExternalSnapshot":
                     return new ProviderOverrideData
                     {
                         ProviderKey = providerKey,
@@ -527,6 +528,11 @@ namespace PlayniteAchievements.Services.GameCustomData
             if (string.Equals(normalized, "FFXIV", StringComparison.OrdinalIgnoreCase))
             {
                 return "FFXIV";
+            }
+
+            if (string.Equals(normalized, "ExternalSnapshot", StringComparison.OrdinalIgnoreCase))
+            {
+                return "ExternalSnapshot";
             }
 
             return null;
