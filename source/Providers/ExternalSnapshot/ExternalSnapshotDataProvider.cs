@@ -11,6 +11,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 
 namespace PlayniteAchievements.Providers.ExternalSnapshot
 {
@@ -18,6 +19,8 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
     {
         public const string Key = "ExternalSnapshot";
 
+        private const string ProviderDisplayName = "External Snapshot";
+        private const string ProviderLocalizationKey = "LOCPlayAch_Provider_ExternalSnapshot";
         private static readonly TimeSpan CatalogCacheDuration = TimeSpan.FromSeconds(2);
         private static readonly ProviderOverrideDescriptor ProviderOverride = ProviderOverrideDescriptor.None();
 
@@ -40,9 +43,10 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
             _ = settings ?? throw new ArgumentNullException(nameof(settings));
             _playniteApi = playniteApi ?? throw new ArgumentNullException(nameof(playniteApi));
             _extensionsDataRoot = ResolveExtensionsDataRoot(pluginUserDataPath);
+            EnsureProviderNameResource();
         }
 
-        public string ProviderName => "External Snapshot";
+        public string ProviderName => ProviderDisplayName;
         public string ProviderKey => Key;
         public string ProviderIconKey => "ProviderIconManual";
         public string ProviderColorHex => "#9AA0A6";
@@ -153,6 +157,21 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
             catch
             {
                 return game.InstallDirectory;
+            }
+        }
+
+        private static void EnsureProviderNameResource()
+        {
+            try
+            {
+                var resources = Application.Current?.Resources;
+                if (resources != null && !resources.Contains(ProviderLocalizationKey))
+                {
+                    resources.Add(ProviderLocalizationKey, ProviderDisplayName);
+                }
+            }
+            catch
+            {
             }
         }
 
