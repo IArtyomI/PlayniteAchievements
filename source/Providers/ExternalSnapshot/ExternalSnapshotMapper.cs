@@ -88,22 +88,28 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
             try
             {
                 string candidate;
-                if (Uri.TryCreate(configuredPath, UriKind.Absolute, out var uri) && !uri.IsFile)
-                {
-                    return null;
-                }
-
-                if (Uri.TryCreate(configuredPath, UriKind.Absolute, out uri) && uri.IsFile)
-                {
-                    candidate = uri.LocalPath;
-                }
-                else if (Path.IsPathRooted(configuredPath))
+                if (Path.IsPathRooted(configuredPath))
                 {
                     candidate = configuredPath;
                 }
+                else if (Uri.TryCreate(configuredPath, UriKind.Absolute, out var uri))
+                {
+                    if (!uri.IsFile)
+                    {
+                        return null;
+                    }
+
+                    candidate = uri.LocalPath;
+                }
                 else
                 {
-                    candidate = Path.Combine(Path.GetDirectoryName(snapshot.SnapshotPath), configuredPath);
+                    var snapshotDirectory = Path.GetDirectoryName(snapshot.SnapshotPath);
+                    if (string.IsNullOrWhiteSpace(snapshotDirectory))
+                    {
+                        return null;
+                    }
+
+                    candidate = Path.Combine(snapshotDirectory, configuredPath);
                 }
 
                 candidate = Path.GetFullPath(candidate);
