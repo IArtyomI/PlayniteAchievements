@@ -57,6 +57,7 @@ function Write-JsonAtomically {
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
 
     $temporaryPath = "$Path.$([Guid]::NewGuid().ToString('N')).tmp"
+    $replacementBackupPath = "$Path.$([Guid]::NewGuid().ToString('N')).replace-backup"
     $json = $Value | ConvertTo-Json -Depth 100
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
@@ -64,7 +65,7 @@ function Write-JsonAtomically {
         [System.IO.File]::WriteAllText($temporaryPath, $json, $utf8NoBom)
 
         if (Test-Path -LiteralPath $Path) {
-            [System.IO.File]::Replace($temporaryPath, $Path, $null)
+            [System.IO.File]::Replace($temporaryPath, $Path, $replacementBackupPath)
         }
         else {
             [System.IO.File]::Move($temporaryPath, $Path)
@@ -73,6 +74,10 @@ function Write-JsonAtomically {
     finally {
         if (Test-Path -LiteralPath $temporaryPath) {
             Remove-Item -LiteralPath $temporaryPath -Force
+        }
+
+        if (Test-Path -LiteralPath $replacementBackupPath) {
+            Remove-Item -LiteralPath $replacementBackupPath -Force
         }
     }
 }
