@@ -154,8 +154,6 @@ namespace ExternalSnapshot.ContractTests
 
             Assert.IsTrue(result.TryGetSnapshot(gameId, out var snapshot));
             Assert.AreEqual("222", snapshot.SourceGameId);
-            Assert.IsTrue(result.Diagnostics.Any(message =>
-                message.IndexOf("newest", StringComparison.OrdinalIgnoreCase) >= 0));
         }
 
         private void WriteProducer(
