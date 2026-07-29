@@ -43,13 +43,21 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
 
             foreach (var producerRoot in producerRoots)
             {
-                TryLoadProducer(producerRoot, result);
+                try
+                {
+                    LoadProducer(producerRoot, result);
+                }
+                catch (Exception exception)
+                {
+                    var producerName = SafeDirectoryName(producerRoot);
+                    result.Diagnostics.Add($"External snapshot producer '{producerName}' could not be read: {exception.Message}");
+                }
             }
 
             return result;
         }
 
-        private static void TryLoadProducer(string producerRoot, ExternalSnapshotCatalogLoadResult result)
+        private static void LoadProducer(string producerRoot, ExternalSnapshotCatalogLoadResult result)
         {
             var indexPath = Path.Combine(producerRoot, "bridge", "v1", "index.json");
             if (!File.Exists(indexPath))
@@ -57,7 +65,7 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                 return;
             }
 
-            var producerDirectoryName = new DirectoryInfo(producerRoot).Name;
+            var producerDirectoryName = SafeDirectoryName(producerRoot);
             JObject index;
             try
             {
@@ -70,16 +78,15 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                 return;
             }
 
-            var producerId = ReadString(index, "ProducerId");
+            var producerId = ReadString(index["ProducerId"]);
             if (string.IsNullOrWhiteSpace(producerId))
             {
                 producerId = producerDirectoryName;
             }
 
-            var producerName = ReadString(index, "ProducerName");
-            var producerVersion = ReadString(index, "ProducerVersion");
-            var entries = index["Entries"] as JArray;
-            if (entries == null)
+            var producerName = ReadString(index["ProducerName"]);
+            var producerVersion = ReadString(index["ProducerVersion"]);
+            if (!(index["Entries"] is JArray entries))
             {
                 return;
             }
@@ -94,15 +101,22 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
             {
                 if (!(entryToken is JObject entry))
                 {
-                    result.Diagnostics.Add($"External snapshot producer '{producerId}' contains an empty index entry.");
+                    result.Diagnostics.Add($"External snapshot producer '{producerId}' contains an invalid index entry.");
                     continue;
                 }
 
-                TryLoadEntry(producerRoot, producerId, producerName, producerVersion, entry, result);
+                try
+                {
+                    LoadEntry(producerRoot, producerId, producerName, producerVersion, entry, result);
+                }
+                catch (Exception exception)
+                {
+                    result.Diagnostics.Add($"External snapshot producer '{producerId}' contains an unreadable entry: {exception.Message}");
+                }
             }
         }
 
-        private static void TryLoadEntry(
+        private static void LoadEntry(
             string producerRoot,
             string producerId,
             string producerName,
@@ -110,7 +124,7 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
             JObject entry,
             ExternalSnapshotCatalogLoadResult result)
         {
-            if (!Guid.TryParse(ReadString(entry, "PlayniteGameId"), out var indexedGameId) || indexedGameId == Guid.Empty)
+            if (!Guid.TryParse(ReadString(entry["PlayniteGameId"]), out var indexedGameId) || indexedGameId == Guid.Empty)
             {
                 result.Diagnostics.Add($"External snapshot producer '{producerId}' contains an invalid Playnite game ID.");
                 return;
@@ -118,7 +132,7 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
 
             if (!TryResolveSafeJsonPath(
                     producerRoot,
-                    ReadString(entry, "SnapshotRelativePath"),
+                    ReadString(entry["SnapshotRelativePath"]),
                     out var snapshotPath,
                     out var pathError))
             {
@@ -144,7 +158,7 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                 return;
             }
 
-            if (!Guid.TryParse(ReadString(payload, "PlayniteGameId"), out var snapshotGameId) || snapshotGameId != indexedGameId)
+            if (!Guid.TryParse(ReadString(payload["PlayniteGameId"]), out var snapshotGameId) || snapshotGameId != indexedGameId)
             {
                 result.Diagnostics.Add($"External snapshot producer '{producerId}' has a snapshot game-ID mismatch.");
                 return;
@@ -162,10 +176,10 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                 ProducerRoot = Path.GetFullPath(producerRoot),
                 SnapshotPath = snapshotPath,
                 PlayniteGameId = snapshotGameId,
-                PlayniteGameName = ReadString(payload, "PlayniteGameName"),
+                PlayniteGameName = ReadString(payload["PlayniteGameName"]),
                 GeneratedAtUtc = EnsureUtc(generatedAtUtc),
-                SourceKey = ReadString(payload, "SourceKey"),
-                SourceGameId = ReadString(payload, "SourceGameId"),
+                SourceKey = ReadString(payload["SourceKey"]),
+                SourceGameId = ReadString(payload["SourceGameId"]),
                 StateKnown = ReadBoolean(payload["StateKnown"]),
                 IsCompleteSnapshot = ReadBoolean(payload["IsCompleteSnapshot"]),
                 Achievements = ReadAchievements(payload["Achievements"], producerId, result)
@@ -209,20 +223,20 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                     continue;
                 }
 
-                var achievementId = ReadString(item, "AchievementId");
+                var achievementId = ReadString(item["AchievementId"]);
                 if (string.IsNullOrWhiteSpace(achievementId) || !seenIds.Add(achievementId))
                 {
                     continue;
                 }
 
-                var displayName = ReadString(item, "DisplayName");
+                var displayName = ReadString(item["DisplayName"]);
                 achievements.Add(new ExternalSnapshotAchievement
                 {
                     AchievementId = achievementId,
                     DisplayName = string.IsNullOrWhiteSpace(displayName) ? achievementId : displayName,
-                    Description = ReadString(item, "Description"),
-                    LockedIconPath = ReadString(item, "LockedIconPath"),
-                    UnlockedIconPath = ReadString(item, "UnlockedIconPath"),
+                    Description = ReadString(item["Description"]),
+                    LockedIconPath = ReadString(item["LockedIconPath"]),
+                    UnlockedIconPath = ReadString(item["UnlockedIconPath"]),
                     IsHidden = ReadBoolean(item["IsHidden"]),
                     IsUnlocked = ReadBoolean(item["IsUnlocked"]),
                     UnlockTimeUtc = ReadUtcDate(item["UnlockTimeUtc"]),
@@ -266,8 +280,7 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                 throw new InvalidDataException("The JSON file exceeds the supported size limit.");
             }
 
-            var token = JToken.Parse(File.ReadAllText(path));
-            if (!(token is JObject obj))
+            if (!(JToken.Parse(File.ReadAllText(path)) is JObject obj))
             {
                 throw new InvalidDataException("The JSON root must be an object.");
             }
@@ -277,12 +290,12 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
 
         private static void ValidateFormat(JObject payload, string expectedFormat, string label)
         {
-            if (!string.Equals(ReadString(payload, "Format"), expectedFormat, StringComparison.Ordinal))
+            if (!string.Equals(ReadString(payload?["Format"]), expectedFormat, StringComparison.Ordinal))
             {
                 throw new InvalidDataException($"The {label} format is not supported.");
             }
 
-            var schemaVersion = ReadNullableInt32(payload["SchemaVersion"]) ?? 0;
+            var schemaVersion = ReadNullableInt32(payload?["SchemaVersion"]) ?? 0;
             if (schemaVersion != SupportedSchemaVersion)
             {
                 throw new InvalidDataException($"The {label} schema version {schemaVersion} is not supported.");
@@ -337,39 +350,53 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
             return root + Path.DirectorySeparatorChar;
         }
 
-        private static string ReadString(JObject payload, string propertyName)
+        private static string SafeDirectoryName(string path)
         {
-            var token = payload?[propertyName];
-            return token == null || token.Type == JTokenType.Null
-                ? string.Empty
-                : Convert.ToString(((JValue)token).Value, CultureInfo.InvariantCulture) ?? string.Empty;
+            try
+            {
+                return new DirectoryInfo(path).Name;
+            }
+            catch
+            {
+                return "unknown";
+            }
+        }
+
+        private static string ReadString(JToken token)
+        {
+            if (!(token is JValue value) || value.Value == null)
+            {
+                return string.Empty;
+            }
+
+            return Convert.ToString(value.Value, CultureInfo.InvariantCulture) ?? string.Empty;
         }
 
         private static bool ReadBoolean(JToken token)
         {
-            if (token == null || token.Type == JTokenType.Null)
+            if (!(token is JValue value) || value.Value == null)
             {
                 return false;
             }
 
-            if (token.Type == JTokenType.Boolean)
+            if (value.Value is bool boolean)
             {
-                return token.Value<bool>();
+                return boolean;
             }
 
-            return bool.TryParse(Convert.ToString(((JValue)token).Value, CultureInfo.InvariantCulture), out var value) && value;
+            return bool.TryParse(Convert.ToString(value.Value, CultureInfo.InvariantCulture), out var parsed) && parsed;
         }
 
         private static int? ReadNullableInt32(JToken token)
         {
-            if (token == null || token.Type == JTokenType.Null)
+            if (!(token is JValue value) || value.Value == null)
             {
                 return null;
             }
 
             try
             {
-                var number = Convert.ToDouble(((JValue)token).Value, CultureInfo.InvariantCulture);
+                var number = Convert.ToDouble(value.Value, CultureInfo.InvariantCulture);
                 if (double.IsNaN(number) || double.IsInfinity(number) || number < int.MinValue || number > int.MaxValue)
                 {
                     return null;
@@ -385,25 +412,27 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
 
         private static DateTime? ReadUtcDate(JToken token)
         {
-            if (token == null || token.Type == JTokenType.Null)
+            if (!(token is JValue value) || value.Value == null)
             {
                 return null;
             }
 
-            var text = token.Type == JTokenType.Date
-                ? token.Value<DateTime>().ToString("o", CultureInfo.InvariantCulture)
-                : Convert.ToString(((JValue)token).Value, CultureInfo.InvariantCulture);
+            if (value.Value is DateTime dateTime)
+            {
+                return EnsureUtc(dateTime);
+            }
 
+            var text = Convert.ToString(value.Value, CultureInfo.InvariantCulture);
             if (!DateTime.TryParse(
                     text,
                     CultureInfo.InvariantCulture,
                     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                    out var value))
+                    out var parsed))
             {
                 return null;
             }
 
-            return EnsureUtc(value);
+            return EnsureUtc(parsed);
         }
 
         private static DateTime EnsureUtc(DateTime value)
