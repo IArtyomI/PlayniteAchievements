@@ -11,6 +11,7 @@ $ErrorActionPreference = "Stop"
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $solutionPath = Join-Path $repositoryRoot "source\PlayniteAchievements.sln"
+$existingTestProject = Join-Path $repositoryRoot "tests\PlayniteAchievements.Tests\PlayniteAchievements.Tests.csproj"
 $contractTestProject = Join-Path $repositoryRoot "tests\ExternalSnapshot.ContractTests\ExternalSnapshot.ContractTests.csproj"
 
 $playniteProcesses = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like "Playnite*" })
@@ -46,23 +47,35 @@ function Resolve-VSTest {
     }
 
     $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-    if (Test-Path $vswhere) {
-        $installationPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.PackageGroup.TestTools.Core -property installationPath
-        if (-not [string]::IsNullOrWhiteSpace($installationPath)) {
-            $candidate = Join-Path $installationPath "Common7\IDE\CommonExtensions\Microsoft\TestWindow\vstest.console.exe"
+    if (-not (Test-Path $vswhere)) {
+        return $null
+    }
+
+    $installationPaths = @(
+        & $vswhere -latest -products * -requires Microsoft.VisualStudio.PackageGroup.TestTools.Core -property installationPath
+        & $vswhere -latest -products * -property installationPath
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+
+    foreach ($installationPath in $installationPaths) {
+        $candidates = @(
+            (Join-Path $installationPath "Common7\IDE\CommonExtensions\Microsoft\TestWindow\vstest.console.exe"),
+            (Join-Path $installationPath "Common7\IDE\Extensions\TestPlatform\vstest.console.exe")
+        )
+
+        foreach ($candidate in $candidates) {
             if (Test-Path $candidate) {
                 return $candidate
             }
         }
     }
 
-    throw "Visual Studio Test Platform was not found in the installed Build Tools instance."
+    return $null
 }
 
 $msbuild = Resolve-MSBuild
 $dotnet = Get-Command dotnet.exe -ErrorAction SilentlyContinue
 if ($null -eq $dotnet) {
-    throw "dotnet.exe was not found. Install a current .NET SDK to run the contract tests."
+    throw "dotnet.exe was not found. Install a current .NET SDK to run the tests."
 }
 
 if (-not $SkipClean) {
@@ -95,8 +108,15 @@ if (-not $SkipExistingTests) {
     }
 
     $vstest = Resolve-VSTest
-    Write-Host "Running existing tests: $existingTestAssembly"
-    & $vstest $existingTestAssembly /Platform:x64
+    if (-not [string]::IsNullOrWhiteSpace($vstest)) {
+        Write-Host "Running existing tests with Visual Studio Test Platform: $existingTestAssembly"
+        & $vstest $existingTestAssembly /Platform:x64
+    }
+    else {
+        Write-Host "Visual Studio Test Platform was not found; running existing tests with dotnet test."
+        & $dotnet.Source test $existingTestProject --configuration $Configuration --no-build --no-restore --nologo
+    }
+
     if ($LASTEXITCODE -ne 0) {
         throw "Existing tests failed with exit code $LASTEXITCODE."
     }
