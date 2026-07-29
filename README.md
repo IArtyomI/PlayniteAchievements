@@ -87,6 +87,25 @@ Congratulations! PlayniteAchievements is now fully functional. This concludes th
 
 See the [First Setup](https://github.com/justin-delano/PlayniteAchievements/wiki/First-Setup) guide and the [Settings](https://github.com/justin-delano/PlayniteAchievements/wiki/Settings) pages on the wiki for more detail.
 
+## Development: External Snapshot bridge
+
+This draft branch includes a generic, producer-neutral External Snapshot provider. It
+scans immediate Playnite `ExtensionsData` children for validated `bridge\v1\index.json`
+catalogs, deterministically selects the newest valid producer snapshot, and automatically
+submits only the changed game and only the `ExternalSnapshot` provider to the existing
+refresh coordinator.
+
+Unknown or incomplete snapshots never write the cache. The first authoritative import
+is a notification-free baseline; later locked-to-unlocked changes enter the existing
+`AchievementUnlocked` event and notification pipeline. Unchanged data and timestamp-only
+corrections do not create events. While a game is running, the existing in-game poller
+owns refresh and unlock diffing to avoid duplicate notifications.
+
+The provider never writes directly to the achievement database. Malformed replacements
+and producer disappearance preserve prior cached data. Its presence-only per-game
+override survives restart. Development testing must use an isolated Playnite profile
+that does not also load another Playnite Achievements fork.
+
 # Friends
 
 In addition to your own data, you can also retrieve achievement data for your friends. Steam, RetroAchievements, and Exophase are currently supported. First, navigate to the Friends tab in settings to get started:

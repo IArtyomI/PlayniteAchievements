@@ -19,5 +19,7 @@
              Link="Source\ExternalSnapshotModels.cs" />
     <Compile Include="..\..\source\Providers\ExternalSnapshot\ExternalSnapshotCatalogReader.cs"
              Link="Source\ExternalSnapshotCatalogReader.cs" />
+    <Compile Include="..\..\source\Providers\ExternalSnapshot\ExternalSnapshotUnlockPolicy.cs"
+             Link="Source\ExternalSnapshotUnlockPolicy.cs" />
   </ItemGroup>
 </Project>

@@ -20,6 +20,7 @@ using PlayniteAchievements.ViewModels;
 using PlayniteAchievements.Providers;
 using PlayniteAchievements.Services;
 using PlayniteAchievements.Providers.Manual;
+using PlayniteAchievements.Providers.ExternalSnapshot;
 using PlayniteAchievements.ViewModels.ManageAchievements;
 using PlayniteAchievements.Views;
 using PlayniteAchievements.Views.Helpers;
@@ -89,6 +90,7 @@ namespace PlayniteAchievements
 
         private readonly BackgroundUpdater _backgroundUpdates;
         private readonly InGameAchievementPoller _inGamePoller;
+        private readonly ExternalSnapshotBridgeMonitor _externalSnapshotBridgeMonitor;
         private readonly ActiveGameWindowTracker _windowTracker;
         private readonly ToastNotificationService _toastNotifications;
         private readonly Services.Recording.UnlockRecordingService _unlockRecordings;
@@ -410,6 +412,19 @@ namespace PlayniteAchievements
 
                     _refreshService = new RefreshRuntime(api, settings, _logger, this, providers, _diskImageService, _managedCustomIconService, _providerRegistry, ProviderRefreshOrder, onRefreshCompleted: payload => HandleRefreshAuthNotifications(payload));
                     _cacheManager = _refreshService.Cache;
+                    _externalSnapshotBridgeMonitor = new ExternalSnapshotBridgeMonitor(
+                        api.Paths.ExtensionsDataPath,
+                        RefreshExternalSnapshotGameAsync,
+                        gameId => _cacheManager.LoadGameData(gameId.ToString()),
+                        gameId => PlayniteApi.Database.Games.Get(gameId),
+                        NotifyAchievementUnlocked,
+                        _logger,
+                        gameId =>
+                        {
+                            var game = PlayniteApi.Database.Games.Get(gameId);
+                            return game?.IsRunning == true &&
+                                _settingsViewModel?.Settings?.Persisted?.EnableInGamePolling == true;
+                        });
                     _friendCacheManager = _cacheManager as Services.Friends.IFriendCacheManager;
                     _friendsOverviewDataCoordinator = new FriendsOverviewDataCoordinator(
                         _friendCacheManager,
@@ -935,6 +950,7 @@ namespace PlayniteAchievements
             using (PerfScope.StartStartup(_logger, "OnApplicationStarted", thresholdMs: 50))
             {
                 _applicationStarted = true;
+                _externalSnapshotBridgeMonitor?.Start();
 
                 // Warm the overview/start-page projection now that the game library is loaded, so
                 // resolved game presentation (cover, icon, playtime, last played, metadata) reflects
@@ -1169,6 +1185,7 @@ namespace PlayniteAchievements
             }
 
             _backgroundUpdates.Stop();
+            try { _externalSnapshotBridgeMonitor?.Dispose(); } catch (Exception ex) { _logger?.Debug(ex, "Failed to dispose ExternalSnapshot bridge monitor"); }
             try { _inGamePoller?.Dispose(); } catch (Exception ex) { _logger?.Debug(ex, "Failed to dispose inGamePoller"); }
             try { _toastNotifications?.Dispose(); } catch (Exception ex) { _logger?.Debug(ex, "Failed to dispose toastNotifications"); }
             try { _unlockRecordings?.Dispose(); } catch (Exception ex) { _logger?.Debug(ex, "Failed to dispose unlockRecordings"); }
@@ -1190,6 +1207,24 @@ namespace PlayniteAchievements
 
             // Shutdown logging system
             try { PluginLogger.Shutdown(); } catch (Exception ex) { System.Diagnostics.Trace.TraceError($"Failed to shutdown logger: {ex}"); }
+        }
+
+        private Task RefreshExternalSnapshotGameAsync(Guid playniteGameId)
+        {
+            return _refreshCoordinator?.ExecuteAsync(new RefreshRequest
+            {
+                GameIds = new[] { playniteGameId },
+                Options = new RefreshOptions
+                {
+                    Subjects = RefreshSubjects.CurrentUser,
+                    Scope = RefreshGameScope.Explicit,
+                    ProviderKeys = new[] { ExternalSnapshotDataProvider.Key },
+                    PlayniteGameIds = new[] { playniteGameId },
+                    RespectUserExclusions = false,
+                    ForceBypassExclusionsForExplicitIncludes = true,
+                    PreferCachedDefinitions = true
+                }
+            }) ?? Task.CompletedTask;
         }
 
         // === Theme Integration ===
