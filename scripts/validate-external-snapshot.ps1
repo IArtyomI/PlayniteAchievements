@@ -101,6 +101,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "MSBuild failed with exit code $LASTEXITCODE."
 }
 
+Write-Host "Running external snapshot contract tests"
+& $dotnet.Source test $contractTestProject --configuration $Configuration --nologo
+if ($LASTEXITCODE -ne 0) {
+    throw "External snapshot contract tests failed with exit code $LASTEXITCODE."
+}
+
 if (-not $SkipExistingTests) {
     $existingTestAssembly = Join-Path $repositoryRoot "tests\PlayniteAchievements.Tests\bin\$Configuration\net462\PlayniteAchievements.Tests.dll"
     if (-not (Test-Path $existingTestAssembly)) {
@@ -120,12 +126,6 @@ if (-not $SkipExistingTests) {
     if ($LASTEXITCODE -ne 0) {
         throw "Existing tests failed with exit code $LASTEXITCODE."
     }
-}
-
-Write-Host "Running external snapshot contract tests"
-& $dotnet.Source test $contractTestProject --configuration $Configuration --nologo
-if ($LASTEXITCODE -ne 0) {
-    throw "External snapshot contract tests failed with exit code $LASTEXITCODE."
 }
 
 $pluginOutput = Join-Path $repositoryRoot "source\bin\$Configuration\PlayniteAchievements.dll"
