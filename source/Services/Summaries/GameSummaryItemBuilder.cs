@@ -58,7 +58,7 @@ namespace PlayniteAchievements.Services.Summaries
             PlayniteAchievementsSettings settings,
             bool allowEmpty = false)
         {
-            if (gameData == null || IsExcludedFromSummaries(gameData))
+            if (gameData == null || gameData.ExcludedFromSummaries)
             {
                 return null;
             }
@@ -115,16 +115,6 @@ namespace PlayniteAchievements.Services.Summaries
                 .ApplyTo(item);
 
             return item;
-        }
-
-        private static bool IsExcludedFromSummaries(GameAchievementData gameData)
-        {
-#if TEST
-            // The linked-source test assembly uses a reduced GameAchievementData stub.
-            return false;
-#else
-            return gameData?.ExcludedFromSummaries == true;
-#endif
         }
 
         private (string providerName, string providerKey, (string iconKey, string colorHex) metadata) ResolveProvider(
