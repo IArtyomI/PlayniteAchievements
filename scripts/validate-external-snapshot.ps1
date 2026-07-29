@@ -9,7 +9,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$pluginProject = Join-Path $repositoryRoot "source\PlayniteAchievements.csproj"
+$sourceDirectory = Join-Path $repositoryRoot "source"
+$solutionDirectory = $sourceDirectory.TrimEnd('\') + '\'
+$pluginProject = Join-Path $sourceDirectory "PlayniteAchievements.csproj"
 $contractTestProject = Join-Path $repositoryRoot "tests\ExternalSnapshot.ContractTests\ExternalSnapshot.ContractTests.csproj"
 
 $playniteProcesses = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like "Playnite*" })
@@ -60,7 +62,7 @@ if (-not $SkipClean) {
 }
 
 Write-Host "Building plugin $Configuration with $msbuild"
-& $msbuild $pluginProject /restore /t:Rebuild /m /p:Configuration=$Configuration /p:RestorePackagesConfig=true /nologo
+& $msbuild $pluginProject /restore /t:Rebuild /m /p:Configuration=$Configuration /p:RestorePackagesConfig=true "/p:SolutionDir=$solutionDirectory" /nologo
 if ($LASTEXITCODE -ne 0) {
     throw "Plugin build failed with exit code $LASTEXITCODE."
 }
