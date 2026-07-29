@@ -42,7 +42,7 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _ = settings ?? throw new ArgumentNullException(nameof(settings));
             _playniteApi = playniteApi ?? throw new ArgumentNullException(nameof(playniteApi));
-            _extensionsDataRoot = ResolveExtensionsDataRoot(pluginUserDataPath);
+            _extensionsDataRoot = ResolveExtensionsDataRoot(playniteApi, pluginUserDataPath);
             EnsureProviderNameResource();
         }
 
@@ -85,6 +85,9 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                                snapshot.IsAuthoritative)
                 .ToList();
 
+            _logger.Debug(
+                $"[ExternalSnapshot] Authoritative snapshot selection completed: requestedGames={gamesToRefresh.Count} selectedGames={supportedGames.Count}.");
+
             if (supportedGames.Count == 0)
             {
                 return new RebuildPayload { Summary = new RebuildSummary() };
@@ -106,6 +109,12 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                         snapshot,
                         ExpandInstallDirectory(game),
                         ProviderKey);
+
+                    if (data != null)
+                    {
+                        _logger.Debug(
+                            $"[ExternalSnapshot] Snapshot mapped for game {game.Id:D}: achievements={data.Achievements?.Count ?? 0} producer={snapshot.ProducerId}.");
+                    }
 
                     return Task.FromResult(data == null
                         ? ProviderRefreshExecutor.ProviderGameResult.Skipped()
@@ -133,6 +142,13 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
 
                 _catalog = _catalogReader.Load(_extensionsDataRoot);
                 _catalogExpiresUtc = DateTime.UtcNow.Add(CatalogCacheDuration);
+
+                if (forceReload)
+                {
+                    var authoritativeCount = _catalog.Snapshots.Values.Count(snapshot => snapshot.IsAuthoritative);
+                    _logger.Debug(
+                        $"[ExternalSnapshot] Catalog discovery completed: snapshots={_catalog.Snapshots.Count} authoritative={authoritativeCount} rejections={_catalog.Diagnostics.Count}.");
+                }
 
                 foreach (var diagnostic in _catalog.Diagnostics)
                 {
@@ -175,8 +191,20 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
             }
         }
 
-        private static string ResolveExtensionsDataRoot(string pluginUserDataPath)
+        private static string ResolveExtensionsDataRoot(IPlayniteAPI playniteApi, string pluginUserDataPath)
         {
+            var configuredRoot = playniteApi?.Paths?.ExtensionsDataPath;
+            if (!string.IsNullOrWhiteSpace(configuredRoot))
+            {
+                try
+                {
+                    return Path.GetFullPath(configuredRoot);
+                }
+                catch
+                {
+                }
+            }
+
             if (!string.IsNullOrWhiteSpace(pluginUserDataPath))
             {
                 try
@@ -192,10 +220,7 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                 }
             }
 
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            return string.IsNullOrWhiteSpace(appData)
-                ? string.Empty
-                : Path.Combine(appData, "Playnite", "ExtensionsData");
+            return string.Empty;
         }
     }
 }

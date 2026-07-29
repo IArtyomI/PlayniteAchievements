@@ -82,6 +82,51 @@ function Write-JsonAtomically {
     }
 }
 
+function Copy-FileAtomically {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    $directory = Split-Path -Parent $Destination
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+
+    $temporaryPath = "$Destination.$([Guid]::NewGuid().ToString('N')).tmp"
+    $replacementBackupPath = "$Destination.$([Guid]::NewGuid().ToString('N')).replace-backup"
+
+    try {
+        [System.IO.File]::Copy($Source, $temporaryPath, $true)
+
+        if (Test-Path -LiteralPath $Destination) {
+            [System.IO.File]::Replace($temporaryPath, $Destination, $replacementBackupPath)
+        }
+        else {
+            [System.IO.File]::Move($temporaryPath, $Destination)
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath) {
+            Remove-Item -LiteralPath $temporaryPath -Force
+        }
+
+        if (Test-Path -LiteralPath $replacementBackupPath) {
+            Remove-Item -LiteralPath $replacementBackupPath -Force
+        }
+    }
+}
+
+function Test-PathEquals {
+    param(
+        [Parameter(Mandatory = $true)][string]$First,
+        [Parameter(Mandatory = $true)][string]$Second
+    )
+
+    return [string]::Equals(
+        [System.IO.Path]::GetFullPath($First),
+        [System.IO.Path]::GetFullPath($Second),
+        [System.StringComparison]::OrdinalIgnoreCase)
+}
+
 $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like "Playnite*" })
 if ($running.Count -gt 0) {
     $processNames = ($running | Select-Object -ExpandProperty ProcessName -Unique) -join ", "
@@ -115,6 +160,7 @@ if ([string]::Equals(
 $producerRoot = Join-Path $testProfile "ExtensionsData\$producerId"
 $producerRoot = Assert-PathWithin $producerRoot $testProfile "The Achievement Sources data directory"
 $indexPath = Join-Path $producerRoot "bridge\v1\index.json"
+$expectedSnapshotPath = Join-Path $producerRoot "snapshots\v1\$($PlayniteGameId.ToString('N')).json"
 $backupRoot = Join-Path $testProfile "ExternalSnapshotFixtureBackups"
 $backupPointer = Join-Path $testProfile "LastExternalSnapshotFixtureBackup.txt"
 
@@ -136,13 +182,32 @@ if ($Mode -eq "Restore") {
     $restoreIndexPath = Assert-PathWithin ([string]$manifest.IndexPath) $testProfile "The restored index"
     $restoreSnapshotPath = Assert-PathWithin ([string]$manifest.SnapshotPath) $testProfile "The restored snapshot"
 
+    if (-not (Test-PathEquals ([string]$manifest.TestProfile) $testProfile) -or
+        -not (Test-PathEquals $restoreIndexPath $indexPath) -or
+        -not (Test-PathEquals $restoreSnapshotPath $expectedSnapshotPath) -or
+        [Guid]$manifest.PlayniteGameId -ne $PlayniteGameId) {
+        throw "The fixture backup manifest does not match the selected isolated profile and game."
+    }
+
     if (-not (Test-Path -LiteralPath $originalIndex) -or
         -not (Test-Path -LiteralPath $originalSnapshot)) {
         throw "The fixture backup is incomplete: $backupDirectory"
     }
 
-    Copy-Item -LiteralPath $originalIndex -Destination $restoreIndexPath -Force
-    Copy-Item -LiteralPath $originalSnapshot -Destination $restoreSnapshotPath -Force
+    $originalIndexHash = (Get-FileHash -LiteralPath $originalIndex -Algorithm SHA256).Hash
+    $originalSnapshotHash = (Get-FileHash -LiteralPath $originalSnapshot -Algorithm SHA256).Hash
+    if ($originalIndexHash -ne [string]$manifest.OriginalIndexSha256 -or
+        $originalSnapshotHash -ne [string]$manifest.OriginalSnapshotSha256) {
+        throw "The fixture backup hashes do not match its manifest: $backupDirectory"
+    }
+
+    Copy-FileAtomically $originalIndex $restoreIndexPath
+    Copy-FileAtomically $originalSnapshot $restoreSnapshotPath
+
+    if ((Get-FileHash -LiteralPath $restoreIndexPath -Algorithm SHA256).Hash -ne $originalIndexHash -or
+        (Get-FileHash -LiteralPath $restoreSnapshotPath -Algorithm SHA256).Hash -ne $originalSnapshotHash) {
+        throw "The restored fixture files failed hash verification."
+    }
 
     Write-Host ""
     Write-Host "Original isolated snapshot restored."
@@ -213,26 +278,74 @@ if (@($duplicateIds).Count -gt 0) {
     throw "The snapshot contains empty or duplicate achievement IDs."
 }
 
-$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$backupDirectory = Join-Path $backupRoot "DiscoElysium-$stamp"
-New-Item -ItemType Directory -Path $backupDirectory -Force | Out-Null
+$backupDirectory = $null
+if (Test-Path -LiteralPath $backupPointer) {
+    $pointedBackup = (Get-Content -LiteralPath $backupPointer -Raw).Trim()
+    $pointedBackup = Assert-PathWithin $pointedBackup $backupRoot "The existing fixture backup"
+    $pointedManifestPath = Join-Path $pointedBackup "manifest.json"
+    if (-not (Test-Path -LiteralPath $pointedManifestPath)) {
+        throw "The existing fixture-backup pointer is stale: $backupPointer"
+    }
 
-$originalIndex = Join-Path $backupDirectory "index.original.json"
-$originalSnapshot = Join-Path $backupDirectory "snapshot.original.json"
-Copy-Item -LiteralPath $indexPath -Destination $originalIndex -Force
-Copy-Item -LiteralPath $snapshotPath -Destination $originalSnapshot -Force
+    $pointedManifest = Get-Content -LiteralPath $pointedManifestPath -Raw | ConvertFrom-Json
+    $pointedIndex = Join-Path $pointedBackup "index.original.json"
+    $pointedSnapshot = Join-Path $pointedBackup "snapshot.original.json"
+    if (-not (Test-PathEquals ([string]$pointedManifest.TestProfile) $testProfile) -or
+        -not (Test-PathEquals ([string]$pointedManifest.IndexPath) $indexPath) -or
+        -not (Test-PathEquals ([string]$pointedManifest.SnapshotPath) $snapshotPath) -or
+        [Guid]$pointedManifest.PlayniteGameId -ne $PlayniteGameId -or
+        -not (Test-Path -LiteralPath $pointedIndex) -or
+        -not (Test-Path -LiteralPath $pointedSnapshot) -or
+        (Get-FileHash -LiteralPath $pointedIndex -Algorithm SHA256).Hash -ne [string]$pointedManifest.OriginalIndexSha256 -or
+        (Get-FileHash -LiteralPath $pointedSnapshot -Algorithm SHA256).Hash -ne [string]$pointedManifest.OriginalSnapshotSha256) {
+        throw "The existing fixture backup is stale or does not match this isolated profile."
+    }
 
-$manifest = [pscustomobject]@{
-    CreatedAtUtc = [DateTime]::UtcNow.ToString("o")
-    TestProfile = $testProfile
-    IndexPath = $indexPath
-    SnapshotPath = $snapshotPath
-    PlayniteGameId = $PlayniteGameId.ToString("D")
-    OriginalIndexSha256 = (Get-FileHash -LiteralPath $originalIndex -Algorithm SHA256).Hash
-    OriginalSnapshotSha256 = (Get-FileHash -LiteralPath $originalSnapshot -Algorithm SHA256).Hash
+    $currentIndexHash = (Get-FileHash -LiteralPath $indexPath -Algorithm SHA256).Hash
+    $currentSnapshotHash = (Get-FileHash -LiteralPath $snapshotPath -Algorithm SHA256).Hash
+    if ($currentIndexHash -ne [string]$pointedManifest.OriginalIndexSha256 -or
+        $currentSnapshotHash -ne [string]$pointedManifest.OriginalSnapshotSha256) {
+        if ([bool]$snapshot.StateKnown -and
+            [bool]$snapshot.IsCompleteSnapshot -and
+            [bool]$entry.StateKnown -and
+            [bool]$entry.IsCompleteSnapshot -and
+            @($snapshot.Diagnostics) -contains $fixtureDiagnostic) {
+            Write-Host ""
+            Write-Host "Synthetic complete snapshot fixture is already prepared."
+            Write-Host "Test profile: $testProfile"
+            Write-Host "Snapshot: $snapshotPath"
+            Write-Host "Backup: $pointedBackup"
+            return
+        }
+
+        throw "The isolated snapshot differs from its backup but is not the expected fixture. Restore it before preparing again."
+    }
+
+    $backupDirectory = $pointedBackup
 }
-Write-JsonAtomically (Join-Path $backupDirectory "manifest.json") $manifest
-$backupDirectory | Set-Content -LiteralPath $backupPointer -Encoding UTF8
+
+if ([string]::IsNullOrWhiteSpace($backupDirectory)) {
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $backupDirectory = Join-Path $backupRoot "DiscoElysium-$stamp"
+    New-Item -ItemType Directory -Path $backupDirectory -Force | Out-Null
+
+    $originalIndex = Join-Path $backupDirectory "index.original.json"
+    $originalSnapshot = Join-Path $backupDirectory "snapshot.original.json"
+    Copy-Item -LiteralPath $indexPath -Destination $originalIndex -Force
+    Copy-Item -LiteralPath $snapshotPath -Destination $originalSnapshot -Force
+
+    $manifest = [pscustomobject]@{
+        CreatedAtUtc = [DateTime]::UtcNow.ToString("o")
+        TestProfile = $testProfile
+        IndexPath = $indexPath
+        SnapshotPath = $snapshotPath
+        PlayniteGameId = $PlayniteGameId.ToString("D")
+        OriginalIndexSha256 = (Get-FileHash -LiteralPath $originalIndex -Algorithm SHA256).Hash
+        OriginalSnapshotSha256 = (Get-FileHash -LiteralPath $originalSnapshot -Algorithm SHA256).Hash
+    }
+    Write-JsonAtomically (Join-Path $backupDirectory "manifest.json") $manifest
+    $backupDirectory | Set-Content -LiteralPath $backupPointer -Encoding UTF8
+}
 
 $generatedAtUtc = [DateTime]::UtcNow.ToString("o")
 $snapshot.GeneratedAtUtc = $generatedAtUtc
@@ -245,7 +358,8 @@ foreach ($achievement in $achievements) {
     $achievement.CurrentProgress = if ($null -ne $achievement.MaximumProgress) { 0 } else { $null }
 }
 
-$diagnostics = @($snapshot.Diagnostics) |
+$diagnostics = @()
+$diagnostics += @($snapshot.Diagnostics) |
     Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
 if ($diagnostics -notcontains $fixtureDiagnostic) {
     $diagnostics += $fixtureDiagnostic

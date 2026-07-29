@@ -59,7 +59,7 @@ Run on Windows with Playnite fully closed:
 The script:
 
 1. restores and rebuilds `source\PlayniteAchievements.csproj` with MSBuild;
-2. runs the six self-contained external snapshot contract tests;
+2. runs the seven self-contained external snapshot contract tests;
 3. verifies that `source\bin\Release\PlayniteAchievements.dll` was produced.
 
 The repository's broader test assembly is not used as the feature gate for this prototype. In the inspected upstream checkout, the test project required unrelated compatibility changes to compile and then reported 22 failures across existing localization, custom-data, category, overview, score-card, start-page, and provider tests. Those failures are tracked separately and are not modified by this provider patch.
