@@ -59,8 +59,10 @@ coordinator. Work is serialized per game and duplicate catalog events are deboun
 Malformed replacements, producer disappearance, and unknown/incomplete snapshots do
 not clear prior cache data.
 
-The first authoritative import establishes a baseline and suppresses unlock events.
-Later locked-to-unlocked changes raise the existing `AchievementUnlocked` event so the
+The first authoritative import, or an authoritative import replacing cache data from
+any other provider, establishes a baseline and suppresses unlock events. Only a later
+`ExternalSnapshot` locked-to-unlocked change raises the existing `AchievementUnlocked`
+event so the
 extension's normal notification, display, recording, and cache policies remain in
 control. Unchanged snapshots, rollback, and timestamp-only corrections produce no
 unlock event. While a game is running with in-game polling enabled, the bridge monitor

@@ -95,8 +95,9 @@ catalogs, deterministically selects the newest valid producer snapshot, and auto
 submits only the changed game and only the `ExternalSnapshot` provider to the existing
 refresh coordinator.
 
-Unknown or incomplete snapshots never write the cache. The first authoritative import
-is a notification-free baseline; later locked-to-unlocked changes enter the existing
+Unknown or incomplete snapshots never write the cache. The first authoritative import,
+and any transition from a different cached provider to `ExternalSnapshot`, is a
+notification-free baseline; later locked-to-unlocked changes enter the existing
 `AchievementUnlocked` event and notification pipeline. Unchanged data and timestamp-only
 corrections do not create events. While a game is running, the existing in-game poller
 owns refresh and unlock diffing to avoid duplicate notifications.

@@ -6,6 +6,14 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
 {
     internal static class ExternalSnapshotUnlockPolicy
     {
+        public static bool HasAuthoritativeBaseline(string previousProviderKey)
+        {
+            return string.Equals(
+                previousProviderKey,
+                ExternalSnapshotDataProvider.Key,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
         public static IReadOnlyCollection<string> SelectNewUnlockKeys(
             IEnumerable<KeyValuePair<string, bool>> before,
             IEnumerable<KeyValuePair<string, bool>> after,

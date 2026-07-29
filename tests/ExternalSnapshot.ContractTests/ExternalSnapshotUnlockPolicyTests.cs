@@ -8,6 +8,18 @@ namespace ExternalSnapshot.ContractTests
     [TestClass]
     public sealed class ExternalSnapshotUnlockPolicyTests
     {
+        [DataTestMethod]
+        [DataRow(null, false)]
+        [DataRow("", false)]
+        [DataRow("Steam", false)]
+        [DataRow("Manual", false)]
+        [DataRow("ExternalSnapshot", true)]
+        [DataRow("externalsnapshot", true)]
+        public void OnlyExternalSnapshotCacheIsAuthoritativeBaseline(string providerKey, bool expected)
+        {
+            Assert.AreEqual(expected, ExternalSnapshotUnlockPolicy.HasAuthoritativeBaseline(providerKey));
+        }
+
         [TestMethod]
         public void InitialAuthoritativeImportIsBaselineOnly()
         {

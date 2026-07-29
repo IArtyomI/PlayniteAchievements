@@ -23,9 +23,7 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
         private readonly ExternalSnapshotCatalogReader reader;
         private readonly AchievementUnlockDiffer differ = new AchievementUnlockDiffer();
         private readonly object gate = new object();
-        private readonly Dictionary<Guid, string> signatures = new Dictionary<Guid, string>();
-        private readonly HashSet<Guid> activeGames = new HashSet<Guid>();
-        private readonly HashSet<Guid> pendingGames = new HashSet<Guid>();
+        private readonly ExternalSnapshotBridgeChangeGate changeGate = new ExternalSnapshotBridgeChangeGate();
         private Timer timer;
         private bool disposed;
         private int scanRunning;
@@ -91,37 +89,13 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                     }
 
                     var signature = BuildSignature(snapshot);
-                    var changed = false;
-                    lock (gate)
-                    {
-                        if (!signatures.TryGetValue(pair.Key, out var previous) ||
-                            !string.Equals(previous, signature, StringComparison.Ordinal))
-                        {
-                            if (activeGames.Add(pair.Key))
-                            {
-                                signatures[pair.Key] = signature;
-                                changed = true;
-                            }
-                            else
-                            {
-                                pendingGames.Add(pair.Key);
-                            }
-                        }
-                    }
-
-                    if (changed)
+                    if (changeGate.TryBegin(pair.Key, signature))
                     {
                         _ = ProcessChangeAsync(snapshot);
                     }
                 }
 
-                lock (gate)
-                {
-                    foreach (var missing in signatures.Keys.Where(id => !authoritativeIds.Contains(id)).ToList())
-                    {
-                        signatures.Remove(missing);
-                    }
-                }
+                changeGate.RetainOnly(authoritativeIds);
 
                 foreach (var diagnostic in catalog.Diagnostics)
                 {
@@ -157,9 +131,10 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                     return;
                 }
 
-                if (before == null)
+                if (before == null ||
+                    !ExternalSnapshotUnlockPolicy.HasAuthoritativeBaseline(before.ProviderKey))
                 {
-                    logger?.Info($"[ExternalSnapshot] Initial authoritative baseline stored for {gameId:D}; unlock notifications suppressed.");
+                    logger?.Info($"[ExternalSnapshot] Initial or provider-transition baseline stored for {gameId:D}; unlock notifications suppressed.");
                     return;
                 }
 
@@ -193,13 +168,9 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
             }
             finally
             {
-                lock (gate)
+                if (changeGate.Complete(gameId))
                 {
-                    activeGames.Remove(gameId);
-                    if (pendingGames.Remove(gameId))
-                    {
-                        signatures.Remove(gameId);
-                    }
+                    _ = ScanAsync();
                 }
             }
         }
@@ -269,9 +240,7 @@ namespace PlayniteAchievements.Providers.ExternalSnapshot
                 disposed = true;
                 timer?.Dispose();
                 timer = null;
-                signatures.Clear();
-                activeGames.Clear();
-                pendingGames.Clear();
+                changeGate.Dispose();
             }
 
             logger?.Info("[ExternalSnapshot] Bridge monitor stopped.");
