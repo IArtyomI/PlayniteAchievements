@@ -7,6 +7,7 @@ using PlayniteAchievements.Providers.Settings;
 using PlayniteAchievements.Services.Refresh;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,6 +31,8 @@ namespace PlayniteAchievements.Providers.GseLocal
         private readonly object _capabilityLock = new object();
         private readonly Dictionary<Guid, CapabilityCacheEntry> _capabilityCache =
             new Dictionary<Guid, CapabilityCacheEntry>();
+        private readonly Dictionary<Guid, string> _lastCapabilityDiagnostics =
+            new Dictionary<Guid, string>();
 
         public GseLocalDataProvider(
             ILogger logger,
@@ -73,8 +76,19 @@ namespace PlayniteAchievements.Providers.GseLocal
             // Requiring the runtime achievements.json prevents an empty AppID directory or
             // playtime.txt-only setup from shadowing the normal Steam provider. GSE becomes
             // authoritative only after it has published complete earned/locked state.
-            var capable = TryLocate(game, out var location) &&
-                location.RuntimeStateExists;
+            var located = TryLocate(
+                game,
+                out var location,
+                out var resolvedInstallDirectory,
+                out var installDirectoryCandidates);
+            var capable = located && location.RuntimeStateExists;
+
+            var diagnostic = BuildCapabilityDiagnostic(
+                game,
+                capable,
+                location,
+                resolvedInstallDirectory,
+                installDirectoryCandidates);
 
             lock (_capabilityLock)
             {
@@ -83,6 +97,13 @@ namespace PlayniteAchievements.Providers.GseLocal
                     IsCapable = capable,
                     ExpiresUtc = DateTime.UtcNow.Add(CapabilityCacheDuration)
                 };
+
+                if (!_lastCapabilityDiagnostics.TryGetValue(game.Id, out var previousDiagnostic) ||
+                    !string.Equals(previousDiagnostic, diagnostic, StringComparison.Ordinal))
+                {
+                    _lastCapabilityDiagnostics[game.Id] = diagnostic;
+                    _logger.Debug(diagnostic);
+                }
             }
 
             return capable;
@@ -105,9 +126,23 @@ namespace PlayniteAchievements.Providers.GseLocal
                 (game, token) =>
                 {
                     token.ThrowIfCancellationRequested();
-                    var installDirectory = ExpandInstallDirectory(game);
-                    var preferredAppId = NormalizeAppId(game.GameId);
 
+                    if (!TryLocate(
+                            game,
+                            out var location,
+                            out var installDirectory,
+                            out var installDirectoryCandidates))
+                    {
+                        _logger.Debug(BuildCapabilityDiagnostic(
+                            game,
+                            capable: false,
+                            location: null,
+                            resolvedInstallDirectory: null,
+                            installDirectoryCandidates));
+                        return Task.FromResult(ProviderRefreshExecutor.ProviderGameResult.Skipped());
+                    }
+
+                    var preferredAppId = NormalizeAppId(game.GameId);
                     if (!_reader.TryRead(
                             installDirectory,
                             _applicationDataDirectory,
@@ -118,9 +153,9 @@ namespace PlayniteAchievements.Providers.GseLocal
                         return Task.FromResult(ProviderRefreshExecutor.ProviderGameResult.Skipped());
                     }
 
-                    foreach (var diagnostic in snapshot.Diagnostics)
+                    foreach (var diagnosticMessage in snapshot.Diagnostics)
                     {
-                        _logger.Debug($"[GseLocal] {game.Name}: {diagnostic}");
+                        _logger.Debug($"[GseLocal] {game.Name}: {diagnosticMessage}");
                     }
 
                     if (!snapshot.IsAuthoritative)
@@ -130,7 +165,8 @@ namespace PlayniteAchievements.Providers.GseLocal
 
                     var data = Map(game, snapshot);
                     _logger.Debug(
-                        $"[GseLocal] Loaded {data.Achievements?.Count ?? 0} achievements for '{game.Name}' (AppID {snapshot.AppId}).");
+                        $"[GseLocal] Loaded {data.Achievements?.Count ?? 0} achievements for '{game.Name}' " +
+                        $"(AppID {snapshot.AppId}, root '{location.InstallDirectory}').");
 
                     return Task.FromResult(
                         new ProviderRefreshExecutor.ProviderGameResult { Data = data });
@@ -146,32 +182,213 @@ namespace PlayniteAchievements.Providers.GseLocal
 
         public ProviderSettingsViewBase CreateSettingsView() => null;
 
-        private bool TryLocate(Game game, out GseLocalSourceLocation location)
+        private bool TryLocate(
+            Game game,
+            out GseLocalSourceLocation location,
+            out string resolvedInstallDirectory,
+            out IReadOnlyList<string> installDirectoryCandidates)
         {
             location = null;
-            var installDirectory = ExpandInstallDirectory(game);
-            return _reader.TryLocate(
-                installDirectory,
-                _applicationDataDirectory,
-                NormalizeAppId(game?.GameId),
-                out location);
+            resolvedInstallDirectory = null;
+            installDirectoryCandidates = ResolveInstallDirectoryCandidates(game);
+            var preferredAppId = NormalizeAppId(game?.GameId);
+
+            foreach (var installDirectory in installDirectoryCandidates)
+            {
+                if (!_reader.TryLocate(
+                        installDirectory,
+                        _applicationDataDirectory,
+                        preferredAppId,
+                        out var candidateLocation))
+                {
+                    continue;
+                }
+
+                location = candidateLocation;
+                resolvedInstallDirectory = installDirectory;
+                return true;
+            }
+
+            return false;
         }
 
-        private string ExpandInstallDirectory(Game game)
+        private IReadOnlyList<string> ResolveInstallDirectoryCandidates(Game game)
         {
-            if (game == null || string.IsNullOrWhiteSpace(game.InstallDirectory))
+            var results = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (game == null)
+            {
+                return results;
+            }
+
+            AddExistingDirectory(results, seen, ExpandGamePath(game, game.InstallDirectory));
+
+            var actions = game.GameActions?
+                .Where(action => action != null)
+                .OrderByDescending(action => action.IsPlayAction)
+                .ToList() ?? new List<GameAction>();
+
+            foreach (var action in actions)
+            {
+                var workingDirectory = ExpandGamePath(game, action.WorkingDir);
+                AddExistingDirectory(results, seen, workingDirectory);
+
+                var trackingPath = ExpandGamePath(game, action.TrackingPath);
+                AddPathOrParentDirectory(
+                    results,
+                    seen,
+                    trackingPath,
+                    workingDirectory,
+                    results.FirstOrDefault());
+
+                var executablePath = ExpandGamePath(game, action.Path);
+                AddPathOrParentDirectory(
+                    results,
+                    seen,
+                    executablePath,
+                    workingDirectory,
+                    results.FirstOrDefault());
+            }
+
+            return results;
+        }
+
+        private string ExpandGamePath(Game game, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
             {
                 return string.Empty;
             }
 
             try
             {
-                return _playniteApi.ExpandGameVariables(game, game.InstallDirectory);
+                return _playniteApi.ExpandGameVariables(game, value)?.Trim() ?? string.Empty;
             }
             catch
             {
-                return game.InstallDirectory;
+                return value.Trim();
             }
+        }
+
+        private static void AddPathOrParentDirectory(
+            ICollection<string> results,
+            ISet<string> seen,
+            string path,
+            params string[] baseDirectories)
+        {
+            var normalizedPath = TrimOuterQuotes(path);
+            if (string.IsNullOrWhiteSpace(normalizedPath))
+            {
+                return;
+            }
+
+            var candidates = new List<string> { normalizedPath };
+            if (!Path.IsPathRooted(normalizedPath))
+            {
+                foreach (var baseDirectory in baseDirectories ?? Array.Empty<string>())
+                {
+                    if (string.IsNullOrWhiteSpace(baseDirectory))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        candidates.Add(Path.Combine(baseDirectory, normalizedPath));
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            foreach (var candidate in candidates)
+            {
+                try
+                {
+                    var fullPath = Path.GetFullPath(candidate);
+                    if (Directory.Exists(fullPath))
+                    {
+                        AddExistingDirectory(results, seen, fullPath);
+                        continue;
+                    }
+
+                    if (File.Exists(fullPath))
+                    {
+                        AddExistingDirectory(results, seen, Path.GetDirectoryName(fullPath));
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static void AddExistingDirectory(
+            ICollection<string> results,
+            ISet<string> seen,
+            string path)
+        {
+            var normalizedPath = TrimOuterQuotes(path);
+            if (string.IsNullOrWhiteSpace(normalizedPath))
+            {
+                return;
+            }
+
+            try
+            {
+                var fullPath = Path.GetFullPath(normalizedPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (Directory.Exists(fullPath) && seen.Add(fullPath))
+                {
+                    results.Add(fullPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static string TrimOuterQuotes(string value)
+        {
+            var trimmed = (value ?? string.Empty).Trim();
+            if (trimmed.Length >= 2 &&
+                ((trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"') ||
+                 (trimmed[0] == '\'' && trimmed[trimmed.Length - 1] == '\'')))
+            {
+                return trimmed.Substring(1, trimmed.Length - 2).Trim();
+            }
+
+            return trimmed;
+        }
+
+        private static string BuildCapabilityDiagnostic(
+            Game game,
+            bool capable,
+            GseLocalSourceLocation location,
+            string resolvedInstallDirectory,
+            IReadOnlyList<string> installDirectoryCandidates)
+        {
+            var gameName = game?.Name ?? "(unknown)";
+            var candidates = installDirectoryCandidates == null || installDirectoryCandidates.Count == 0
+                ? "(none)"
+                : string.Join("; ", installDirectoryCandidates);
+
+            if (capable && location != null)
+            {
+                return $"[GseLocal] IsCapable for '{gameName}': true " +
+                    $"(AppID {location.AppId}, root '{resolvedInstallDirectory}', runtime '{location.RuntimePath}').";
+            }
+
+            if (location != null)
+            {
+                return $"[GseLocal] IsCapable for '{gameName}': false; " +
+                    $"steam_settings resolved at '{location.SettingsDirectory}', but runtime state is missing at " +
+                    $"'{location.RuntimePath}'. Candidates: {candidates}";
+            }
+
+            return $"[GseLocal] IsCapable for '{gameName}': false; no matching steam_settings source was found. " +
+                $"Candidates: {candidates}";
         }
 
         private static GameAchievementData Map(Game game, GseLocalSnapshot snapshot)
