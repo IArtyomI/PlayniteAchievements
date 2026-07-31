@@ -8,8 +8,11 @@ on:
     paths:
       - "source/Providers/GseLocal/**"
       - "source/Providers/ExternalSnapshot/**"
+      - "source/PlayniteAchievementsPlugin.GseLocal.cs"
       - "tests/ExternalSnapshot.ContractTests/**"
       - "scripts/validate-external-snapshot.ps1"
+      - "scripts/validate-gse-local-source.ps1"
+      - "scripts/start-gse-local-dev.ps1"
       - ".github/workflows/gse-local-provider.yml"
   workflow_dispatch:
 
@@ -39,3 +42,11 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass
           -File .\scripts\validate-external-snapshot.ps1
           -Configuration Release
+
+      - name: Upload compiled Playnite extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlayniteAchievements-GseLocal-${{ github.sha }}
+          path: source/bin/Release/**
+          if-no-files-found: error
+          retention-days: 7
