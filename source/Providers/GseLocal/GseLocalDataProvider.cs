@@ -28,6 +28,7 @@ namespace PlayniteAchievements.Providers.GseLocal
         private readonly IPlayniteAPI _playniteApi;
         private readonly string _applicationDataDirectory;
         private readonly GseLocalSourceReader _reader = new GseLocalSourceReader();
+        private readonly GseLocalIconMaterializer _iconMaterializer;
         private readonly object _capabilityLock = new object();
         private readonly Dictionary<Guid, CapabilityCacheEntry> _capabilityCache =
             new Dictionary<Guid, CapabilityCacheEntry>();
@@ -43,7 +44,7 @@ namespace PlayniteAchievements.Providers.GseLocal
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _ = settings ?? throw new ArgumentNullException(nameof(settings));
             _playniteApi = playniteApi ?? throw new ArgumentNullException(nameof(playniteApi));
-            _ = pluginUserDataPath;
+            _iconMaterializer = new GseLocalIconMaterializer(pluginUserDataPath);
             _applicationDataDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             EnsureProviderNameResource();
         }
@@ -162,6 +163,17 @@ namespace PlayniteAchievements.Providers.GseLocal
                     {
                         return Task.FromResult(ProviderRefreshExecutor.ProviderGameResult.Skipped());
                     }
+
+                    var iconResult = _iconMaterializer.Materialize(game.Id, snapshot);
+                    foreach (var diagnosticMessage in iconResult.Diagnostics)
+                    {
+                        _logger.Debug($"[GseLocal] {game.Name}: {diagnosticMessage}");
+                    }
+
+                    _logger.Debug(
+                        $"[GseLocal] Materialized icons for '{game.Name}': " +
+                        $"achievements={iconResult.AchievementCount}, " +
+                        $"unlocked={iconResult.UnlockedIconCount}, locked={iconResult.LockedIconCount}.");
 
                     var data = Map(game, snapshot);
                     _logger.Debug(
