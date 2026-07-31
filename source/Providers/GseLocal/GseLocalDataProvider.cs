@@ -469,8 +469,7 @@ namespace PlayniteAchievements.Providers.GseLocal
 
         internal static List<AchievementDetail> MapAchievements(GseLocalSnapshot snapshot)
         {
-            return (snapshot?.Achievements ?? new List<GseLocalAchievement>())
-                .Where(item => item != null && !string.IsNullOrWhiteSpace(item.AchievementId))
+            return GseLocalRefreshPolicy.GetValidAchievements(snapshot)
                 .Select(item => new AchievementDetail
                 {
                     ApiName = item.AchievementId,
@@ -493,14 +492,7 @@ namespace PlayniteAchievements.Providers.GseLocal
 
         internal static DateTime ResolveRefreshUtc(DateTime refreshedAtUtc)
         {
-            if (refreshedAtUtc == default(DateTime))
-            {
-                return DateTime.UtcNow;
-            }
-
-            return refreshedAtUtc.Kind == DateTimeKind.Utc
-                ? refreshedAtUtc
-                : refreshedAtUtc.ToUniversalTime();
+            return GseLocalRefreshPolicy.ResolveRefreshUtc(refreshedAtUtc);
         }
 
         private static string NormalizeAppId(string value)
