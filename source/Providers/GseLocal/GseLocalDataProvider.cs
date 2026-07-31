@@ -451,9 +451,10 @@ namespace PlayniteAchievements.Providers.GseLocal
 
             return new GameAchievementData
             {
-                // This is cache/import recency, not source-file modification time. Using the
-                // runtime file's old timestamp lets a newer Steam row remain selected after a
-                // successful GSE refresh, which can incorrectly leave the UI at 0/N.
+                // LastUpdatedUtc tracks when Playnite imported the authoritative GSE state.
+                // The individual achievement UnlockTimeUtc values still come from earned_time.
+                // Keeping those two timestamps separate ensures a newly refreshed GSE 1/N row
+                // supersedes an older provider's newer-looking 0/N cache row.
                 LastUpdatedUtc = refreshUtc,
                 ProviderKey = Key,
                 LibrarySourceName = ProviderDisplayName,
