@@ -23,5 +23,9 @@
              Link="Source\ExternalSnapshotUnlockPolicy.cs" />
     <Compile Include="..\..\source\Providers\ExternalSnapshot\ExternalSnapshotBridgeChangeGate.cs"
              Link="Source\ExternalSnapshotBridgeChangeGate.cs" />
+    <Compile Include="..\..\source\Providers\GseLocal\GseLocalModels.cs"
+             Link="Source\GseLocalModels.cs" />
+    <Compile Include="..\..\source\Providers\GseLocal\GseLocalSourceReader.cs"
+             Link="Source\GseLocalSourceReader.cs" />
   </ItemGroup>
 </Project>
