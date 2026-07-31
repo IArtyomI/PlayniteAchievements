@@ -7,7 +7,6 @@ using PlayniteAchievements.Providers.Settings;
 using PlayniteAchievements.Services.Refresh;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -71,8 +70,11 @@ namespace PlayniteAchievements.Providers.GseLocal
                 }
             }
 
+            // Requiring the runtime achievements.json prevents an empty AppID directory or
+            // playtime.txt-only setup from shadowing the normal Steam provider. GSE becomes
+            // authoritative only after it has published complete earned/locked state.
             var capable = TryLocate(game, out var location) &&
-                location.RuntimeDirectoryExists;
+                location.RuntimeStateExists;
 
             lock (_capabilityLock)
             {
