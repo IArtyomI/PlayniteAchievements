@@ -446,7 +446,30 @@ namespace PlayniteAchievements.Providers.GseLocal
             GseLocalSnapshot snapshot,
             DateTime refreshedAtUtc)
         {
-            var achievements = snapshot.Achievements
+            var achievements = MapAchievements(snapshot);
+            var refreshUtc = ResolveRefreshUtc(refreshedAtUtc);
+
+            return new GameAchievementData
+            {
+                // This is cache/import recency, not source-file modification time. Using the
+                // runtime file's old timestamp lets a newer Steam row remain selected after a
+                // successful GSE refresh, which can incorrectly leave the UI at 0/N.
+                LastUpdatedUtc = refreshUtc,
+                ProviderKey = Key,
+                LibrarySourceName = ProviderDisplayName,
+                HasAchievements = achievements.Count > 0,
+                GameName = game.Name,
+                AppId = int.TryParse(snapshot.AppId, out var appId) ? appId : 0,
+                ProviderGameKey = "gse-local:" + (snapshot.AppId ?? string.Empty),
+                PlayniteGameId = game.Id,
+                Game = game,
+                Achievements = achievements
+            };
+        }
+
+        internal static List<AchievementDetail> MapAchievements(GseLocalSnapshot snapshot)
+        {
+            return (snapshot?.Achievements ?? new List<GseLocalAchievement>())
                 .Where(item => item != null && !string.IsNullOrWhiteSpace(item.AchievementId))
                 .Select(item => new AchievementDetail
                 {
@@ -466,29 +489,18 @@ namespace PlayniteAchievements.Providers.GseLocal
                         : RarityTier.Common
                 })
                 .ToList();
+        }
 
-            var refreshUtc = refreshedAtUtc == default(DateTime)
-                ? DateTime.UtcNow
-                : refreshedAtUtc.Kind == DateTimeKind.Utc
-                    ? refreshedAtUtc
-                    : refreshedAtUtc.ToUniversalTime();
-
-            return new GameAchievementData
+        internal static DateTime ResolveRefreshUtc(DateTime refreshedAtUtc)
+        {
+            if (refreshedAtUtc == default(DateTime))
             {
-                // This is cache/import recency, not source-file modification time. Using the
-                // runtime file's old timestamp lets a newer Steam row remain selected after a
-                // successful GSE refresh, which can incorrectly leave the UI at 0/N.
-                LastUpdatedUtc = refreshUtc,
-                ProviderKey = Key,
-                LibrarySourceName = ProviderDisplayName,
-                HasAchievements = achievements.Count > 0,
-                GameName = game.Name,
-                AppId = int.TryParse(snapshot.AppId, out var appId) ? appId : 0,
-                ProviderGameKey = "gse-local:" + (snapshot.AppId ?? string.Empty),
-                PlayniteGameId = game.Id,
-                Game = game,
-                Achievements = achievements
-            };
+                return DateTime.UtcNow;
+            }
+
+            return refreshedAtUtc.Kind == DateTimeKind.Utc
+                ? refreshedAtUtc
+                : refreshedAtUtc.ToUniversalTime();
         }
 
         private static string NormalizeAppId(string value)
