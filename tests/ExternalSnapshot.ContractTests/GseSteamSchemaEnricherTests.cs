@@ -1,5 +1,4 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Playnite.SDK.Models;
 using PlayniteAchievements.Providers.GseLocal;
 using PlayniteAchievements.Providers.Steam.Models;
 using System;
@@ -81,11 +80,6 @@ namespace ExternalSnapshot.ContractTests
         {
             var sourceStateTime = new DateTime(2026, 7, 31, 4, 58, 43, DateTimeKind.Utc);
             var refreshTime = new DateTime(2026, 7, 31, 21, 35, 0, DateTimeKind.Utc);
-            var game = new Game
-            {
-                Id = Guid.Parse("67603a6b-94a5-4019-82b0-a391ca846a3f"),
-                Name = "ZERO PARADES For Dead Spies"
-            };
             var snapshot = new GseLocalSnapshot
             {
                 AppId = "2863680",
@@ -110,13 +104,14 @@ namespace ExternalSnapshot.ContractTests
                 }
             };
 
-            var data = GseLocalDataProvider.Map(game, snapshot, refreshTime);
+            var achievements = GseLocalDataProvider.MapAchievements(snapshot);
+            var resolvedRefreshTime = GseLocalDataProvider.ResolveRefreshUtc(refreshTime);
 
-            Assert.AreEqual(refreshTime, data.LastUpdatedUtc);
-            Assert.AreEqual(1, data.UnlockedCount);
-            Assert.AreEqual(2, data.AchievementCount);
+            Assert.AreEqual(refreshTime, resolvedRefreshTime);
+            Assert.AreEqual(2, achievements.Count);
+            Assert.AreEqual(1, achievements.Count(item => item.Unlocked));
 
-            var conditioning = data.Achievements.Single(item => item.ApiName == "ACH_CONDITIONING");
+            var conditioning = achievements.Single(item => item.ApiName == "ACH_CONDITIONING");
             Assert.IsTrue(conditioning.Unlocked);
             Assert.AreEqual(sourceStateTime, conditioning.UnlockTimeUtc);
         }
