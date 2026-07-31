@@ -47,6 +47,7 @@ function Normalize-AppId {
 function Add-SettingsCandidate {
     param(
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [System.Collections.Generic.HashSet[string]]$Set,
 
         [Parameter(Mandatory = $true)]
@@ -68,12 +69,12 @@ function Find-SteamSettingsDirectories {
     param([Parameter(Mandatory = $true)][string]$Root)
 
     $results = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-    Add-SettingsCandidate $results (Join-Path $Root "steam_settings")
-    Add-SettingsCandidate $results (Join-Path $Root "Plugins\x86_64\steam_settings")
+    Add-SettingsCandidate -Set $results -Path (Join-Path $Root "steam_settings")
+    Add-SettingsCandidate -Set $results -Path (Join-Path $Root "Plugins\x86_64\steam_settings")
 
     try {
         foreach ($dataDirectory in Get-ChildItem -LiteralPath $Root -Directory -Filter "*_Data" -ErrorAction Stop) {
-            Add-SettingsCandidate $results (Join-Path $dataDirectory.FullName "Plugins\x86_64\steam_settings")
+            Add-SettingsCandidate -Set $results -Path (Join-Path $dataDirectory.FullName "Plugins\x86_64\steam_settings")
         }
     }
     catch {
@@ -100,7 +101,7 @@ function Find-SteamSettingsDirectories {
             }
 
             if ($child.Name -ieq "steam_settings") {
-                Add-SettingsCandidate $results $child.FullName
+                Add-SettingsCandidate -Set $results -Path $child.FullName
                 continue
             }
 
