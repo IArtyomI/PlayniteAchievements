@@ -104,15 +104,15 @@ namespace ExternalSnapshot.ContractTests
                 }
             };
 
-            var achievements = GseLocalDataProvider.MapAchievements(snapshot);
-            var resolvedRefreshTime = GseLocalDataProvider.ResolveRefreshUtc(refreshTime);
+            var achievements = GseLocalRefreshPolicy.GetValidAchievements(snapshot);
+            var resolvedRefreshTime = GseLocalRefreshPolicy.ResolveRefreshUtc(refreshTime);
 
             Assert.AreEqual(refreshTime, resolvedRefreshTime);
             Assert.AreEqual(2, achievements.Count);
-            Assert.AreEqual(1, achievements.Count(item => item.Unlocked));
+            Assert.AreEqual(1, achievements.Count(item => item.IsUnlocked));
 
-            var conditioning = achievements.Single(item => item.ApiName == "ACH_CONDITIONING");
-            Assert.IsTrue(conditioning.Unlocked);
+            var conditioning = achievements.Single(item => item.AchievementId == "ACH_CONDITIONING");
+            Assert.IsTrue(conditioning.IsUnlocked);
             Assert.AreEqual(sourceStateTime, conditioning.UnlockTimeUtc);
         }
 
