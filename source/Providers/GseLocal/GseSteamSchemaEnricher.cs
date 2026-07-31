@@ -39,9 +39,8 @@ namespace PlayniteAchievements.Providers.GseLocal
                     continue;
                 }
 
-                // Steam supplies the canonical presentation schema. GSE remains the only
-                // authority for earned state and earned_time; those properties are never
-                // read from or changed by this merger.
+                // Steam supplies presentation only. IsUnlocked and UnlockTimeUtc remain the
+                // exact values read from GSE runtime state and are never touched here.
                 if (!string.IsNullOrWhiteSpace(steam.DisplayName))
                 {
                     local.DisplayName = steam.DisplayName.Trim();
