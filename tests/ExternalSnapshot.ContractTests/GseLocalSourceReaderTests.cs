@@ -47,6 +47,62 @@ namespace ExternalSnapshot.ContractTests
         }
 
         [TestMethod]
+        public void MaterializesIconsIntoStableGameScopedPngCacheAndRecreatesDeletedCache()
+        {
+            using (var fixture = GseFixture.Create())
+            {
+                fixture.WriteSchema(includeTraversalIcon: false);
+                fixture.WriteRuntime(includeSecondAchievement: true);
+
+                var reader = new GseLocalSourceReader();
+                Assert.IsTrue(reader.TryRead(
+                    fixture.InstallDirectory,
+                    fixture.ApplicationDataDirectory,
+                    fixture.AppId,
+                    out var snapshot));
+                Assert.IsTrue(snapshot.IsAuthoritative);
+
+                var gameId = Guid.NewGuid();
+                var materializer = new GseLocalIconMaterializer(fixture.PluginUserDataDirectory);
+                var firstResult = materializer.Materialize(gameId, snapshot);
+
+                Assert.AreEqual(2, firstResult.AchievementCount);
+                Assert.AreEqual(2, firstResult.UnlockedIconCount);
+                Assert.AreEqual(2, firstResult.LockedIconCount);
+                Assert.AreEqual(0, firstResult.Diagnostics.Count);
+
+                var expectedDirectory = Path.Combine(
+                    fixture.PluginUserDataDirectory,
+                    "icon_cache",
+                    gameId.ToString("D"),
+                    "gse-local");
+                Assert.IsTrue(Directory.Exists(expectedDirectory));
+
+                foreach (var achievement in snapshot.Achievements)
+                {
+                    AssertMaterializedPng(expectedDirectory, achievement.UnlockedIconPath);
+                    AssertMaterializedPng(expectedDirectory, achievement.LockedIconPath);
+                }
+
+                Directory.Delete(expectedDirectory, recursive: true);
+                Assert.IsFalse(Directory.Exists(expectedDirectory));
+
+                Assert.IsTrue(reader.TryRead(
+                    fixture.InstallDirectory,
+                    fixture.ApplicationDataDirectory,
+                    fixture.AppId,
+                    out var freshSnapshot));
+                var secondResult = materializer.Materialize(gameId, freshSnapshot);
+
+                Assert.AreEqual(2, secondResult.UnlockedIconCount);
+                Assert.AreEqual(2, secondResult.LockedIconCount);
+                Assert.AreEqual(0, secondResult.Diagnostics.Count);
+                Assert.IsTrue(Directory.Exists(expectedDirectory));
+                Assert.AreEqual(4, Directory.GetFiles(expectedDirectory, "*.png").Length);
+            }
+        }
+
+        [TestMethod]
         public void LocatesUnitySteamSettingsAndUsesExistingGseRuntimeDirectory()
         {
             using (var fixture = GseFixture.Create())
@@ -140,7 +196,7 @@ namespace ExternalSnapshot.ContractTests
                 fixture.WriteRuntime(includeSecondAchievement: true);
 
                 var outsideIcon = Path.Combine(fixture.RootDirectory, "outside.jpg");
-                File.WriteAllBytes(outsideIcon, new byte[] { 1, 2, 3 });
+                File.WriteAllBytes(outsideIcon, GseFixture.ValidImageBytes);
 
                 var reader = new GseLocalSourceReader();
                 Assert.IsTrue(reader.TryRead(
@@ -154,13 +210,33 @@ namespace ExternalSnapshot.ContractTests
             }
         }
 
+        private static void AssertMaterializedPng(string expectedDirectory, string path)
+        {
+            Assert.IsFalse(string.IsNullOrWhiteSpace(path));
+            Assert.AreEqual(".png", Path.GetExtension(path), true);
+            Assert.IsTrue(File.Exists(path));
+            Assert.IsTrue(
+                Path.GetFullPath(path).StartsWith(
+                    Path.GetFullPath(expectedDirectory) + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase));
+
+            var signature = File.ReadAllBytes(path).Take(8).ToArray();
+            CollectionAssert.AreEqual(
+                new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 },
+                signature);
+        }
+
         private sealed class GseFixture : IDisposable
         {
+            internal static readonly byte[] ValidImageBytes = Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+
             private GseFixture(string rootDirectory)
             {
                 RootDirectory = rootDirectory;
                 InstallDirectory = Path.Combine(rootDirectory, "Zero Parades");
                 ApplicationDataDirectory = Path.Combine(rootDirectory, "Roaming");
+                PluginUserDataDirectory = Path.Combine(rootDirectory, "PluginData");
                 SettingsDirectory = Path.Combine(
                     InstallDirectory,
                     "ZeroParades_Data",
@@ -173,15 +249,17 @@ namespace ExternalSnapshot.ContractTests
 
                 Directory.CreateDirectory(Path.GetDirectoryName(UnlockedIconPath));
                 Directory.CreateDirectory(ApplicationDataDirectory);
+                Directory.CreateDirectory(PluginUserDataDirectory);
                 File.WriteAllText(Path.Combine(SettingsDirectory, "steam_appid.txt"), AppId);
-                File.WriteAllBytes(UnlockedIconPath, new byte[] { 1, 2, 3 });
-                File.WriteAllBytes(LockedIconPath, new byte[] { 4, 5, 6 });
+                File.WriteAllBytes(UnlockedIconPath, ValidImageBytes);
+                File.WriteAllBytes(LockedIconPath, ValidImageBytes);
             }
 
             public string AppId => "2863680";
             public string RootDirectory { get; }
             public string InstallDirectory { get; }
             public string ApplicationDataDirectory { get; }
+            public string PluginUserDataDirectory { get; }
             public string SettingsDirectory { get; }
             public string RuntimeDirectory { get; }
             public string UnlockedIconPath { get; }
