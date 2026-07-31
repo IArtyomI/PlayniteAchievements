@@ -203,9 +203,11 @@ namespace PlayniteAchievements.Providers.GseLocal
                     }
 
                     var data = Map(game, snapshot);
-                    _logger.Debug(
-                        $"[GseLocal] Loaded {data.Achievements?.Count ?? 0} achievements for '{game.Name}' " +
-                        $"(AppID {snapshot.AppId}, root '{location.InstallDirectory}').");
+                    _logger.Info(
+                        $"[GseLocal] Loaded {data.AchievementCount} achievements for '{game.Name}' " +
+                        $"with unlocked={data.UnlockedCount} " +
+                        $"(AppID {snapshot.AppId}, root '{location.InstallDirectory}', " +
+                        $"sourceStateUtc={snapshot.GeneratedAtUtc:O}, refreshUtc={data.LastUpdatedUtc:O}).");
 
                     return new ProviderRefreshExecutor.ProviderGameResult { Data = data };
                 },
@@ -434,7 +436,15 @@ namespace PlayniteAchievements.Providers.GseLocal
                 $"Candidates: {candidates}";
         }
 
-        private static GameAchievementData Map(Game game, GseLocalSnapshot snapshot)
+        internal static GameAchievementData Map(Game game, GseLocalSnapshot snapshot)
+        {
+            return Map(game, snapshot, DateTime.UtcNow);
+        }
+
+        internal static GameAchievementData Map(
+            Game game,
+            GseLocalSnapshot snapshot,
+            DateTime refreshedAtUtc)
         {
             var achievements = snapshot.Achievements
                 .Where(item => item != null && !string.IsNullOrWhiteSpace(item.AchievementId))
@@ -457,11 +467,18 @@ namespace PlayniteAchievements.Providers.GseLocal
                 })
                 .ToList();
 
+            var refreshUtc = refreshedAtUtc == default(DateTime)
+                ? DateTime.UtcNow
+                : refreshedAtUtc.Kind == DateTimeKind.Utc
+                    ? refreshedAtUtc
+                    : refreshedAtUtc.ToUniversalTime();
+
             return new GameAchievementData
             {
-                LastUpdatedUtc = snapshot.GeneratedAtUtc == default(DateTime)
-                    ? DateTime.UtcNow
-                    : snapshot.GeneratedAtUtc,
+                // This is cache/import recency, not source-file modification time. Using the
+                // runtime file's old timestamp lets a newer Steam row remain selected after a
+                // successful GSE refresh, which can incorrectly leave the UI at 0/N.
+                LastUpdatedUtc = refreshUtc,
                 ProviderKey = Key,
                 LibrarySourceName = ProviderDisplayName,
                 HasAchievements = achievements.Count > 0,
