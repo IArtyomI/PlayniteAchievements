@@ -39,5 +39,6 @@ namespace PlayniteAchievements.Providers.GseLocal
         public bool IsHidden { get; set; }
         public bool IsUnlocked { get; set; }
         public DateTime? UnlockTimeUtc { get; set; }
+        public double? GlobalPercentUnlocked { get; set; }
     }
 }
