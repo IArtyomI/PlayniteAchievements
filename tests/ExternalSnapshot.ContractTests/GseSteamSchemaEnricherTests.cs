@@ -1,8 +1,10 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Playnite.SDK.Models;
 using PlayniteAchievements.Providers.GseLocal;
 using PlayniteAchievements.Providers.Steam.Models;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ExternalSnapshot.ContractTests
 {
@@ -72,6 +74,51 @@ namespace ExternalSnapshot.ContractTests
             var locked = snapshot.Achievements[0];
             Assert.IsFalse(locked.IsUnlocked);
             Assert.IsNull(locked.UnlockTimeUtc);
+        }
+
+        [TestMethod]
+        public void MapsGseStateWithRefreshTimeSoARecentSteamRowCannotRemainSelected()
+        {
+            var sourceStateTime = new DateTime(2026, 7, 31, 4, 58, 43, DateTimeKind.Utc);
+            var refreshTime = new DateTime(2026, 7, 31, 21, 35, 0, DateTimeKind.Utc);
+            var game = new Game
+            {
+                Id = Guid.Parse("67603a6b-94a5-4019-82b0-a391ca846a3f"),
+                Name = "ZERO PARADES For Dead Spies"
+            };
+            var snapshot = new GseLocalSnapshot
+            {
+                AppId = "2863680",
+                GeneratedAtUtc = sourceStateTime,
+                StateKnown = true,
+                IsCompleteSnapshot = true,
+                Achievements = new List<GseLocalAchievement>
+                {
+                    new GseLocalAchievement
+                    {
+                        AchievementId = "ACH_CONDITIONING",
+                        DisplayName = "Conditioning",
+                        IsUnlocked = true,
+                        UnlockTimeUtc = sourceStateTime
+                    },
+                    new GseLocalAchievement
+                    {
+                        AchievementId = "ACH_LOCKED",
+                        DisplayName = "Locked",
+                        IsUnlocked = false
+                    }
+                }
+            };
+
+            var data = GseLocalDataProvider.Map(game, snapshot, refreshTime);
+
+            Assert.AreEqual(refreshTime, data.LastUpdatedUtc);
+            Assert.AreEqual(1, data.UnlockedCount);
+            Assert.AreEqual(2, data.AchievementCount);
+
+            var conditioning = data.Achievements.Single(item => item.ApiName == "ACH_CONDITIONING");
+            Assert.IsTrue(conditioning.Unlocked);
+            Assert.AreEqual(sourceStateTime, conditioning.UnlockTimeUtc);
         }
 
         [TestMethod]
