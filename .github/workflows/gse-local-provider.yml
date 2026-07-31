@@ -1,0 +1,41 @@
+name: GSE local provider
+
+on:
+  push:
+    branches:
+      - feature/gse-local-provider
+  pull_request:
+    paths:
+      - "source/Providers/GseLocal/**"
+      - "source/Providers/ExternalSnapshot/**"
+      - "tests/ExternalSnapshot.ContractTests/**"
+      - "scripts/validate-external-snapshot.ps1"
+      - ".github/workflows/gse-local-provider.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build plugin and run focused contract tests
+        shell: powershell
+        run: >-
+          powershell.exe -NoProfile -ExecutionPolicy Bypass
+          -File .\scripts\validate-external-snapshot.ps1
+          -Configuration Release
