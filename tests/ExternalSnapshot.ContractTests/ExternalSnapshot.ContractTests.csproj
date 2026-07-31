@@ -33,6 +33,10 @@
              Link="Source\GseLocalSourceReader.cs" />
     <Compile Include="..\..\source\Providers\GseLocal\GseLocalIconMaterializer.cs"
              Link="Source\GseLocalIconMaterializer.cs" />
+    <Compile Include="..\..\source\Providers\GseLocal\GseSteamSchemaEnricher.cs"
+             Link="Source\GseSteamSchemaEnricher.cs" />
+    <Compile Include="..\..\source\Providers\Steam\Models\SteamApiResponseModels.cs"
+             Link="Source\SteamApiResponseModels.cs" />
     <Compile Include="..\..\source\Services\Images\AchievementIconCachePathBuilder.cs"
              Link="Source\AchievementIconCachePathBuilder.cs" />
   </ItemGroup>
