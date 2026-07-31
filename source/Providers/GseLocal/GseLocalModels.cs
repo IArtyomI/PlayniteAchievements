@@ -52,6 +52,7 @@ namespace PlayniteAchievements.Providers.GseLocal
                 .ToList();
         }
 
+        // Cache recency is the import time. Per-achievement unlock time stays separate.
         public static DateTime ResolveRefreshUtc(DateTime refreshedAtUtc)
         {
             if (refreshedAtUtc == default(DateTime))
