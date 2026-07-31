@@ -15,7 +15,7 @@ using System.Windows;
 
 namespace PlayniteAchievements.Providers.GseLocal
 {
-    public sealed class GseLocalDataProvider : DataProviderBase<GseLocalSettings>, IDataProvider, IProviderOverride
+    public sealed class GseLocalDataProvider : DataProviderBase<GseLocalSettings>, IDataProvider, IProviderOverride, IDisposable
     {
         public const string Key = "GseLocal";
 
@@ -25,10 +25,12 @@ namespace PlayniteAchievements.Providers.GseLocal
         private static readonly ProviderOverrideDescriptor ProviderOverride = ProviderOverrideDescriptor.None();
 
         private readonly ILogger _logger;
+        private readonly PlayniteAchievementsSettings _settings;
         private readonly IPlayniteAPI _playniteApi;
         private readonly string _applicationDataDirectory;
         private readonly GseLocalSourceReader _reader = new GseLocalSourceReader();
         private readonly GseLocalIconMaterializer _iconMaterializer;
+        private readonly GseSteamSchemaClient _steamSchemaClient;
         private readonly object _capabilityLock = new object();
         private readonly Dictionary<Guid, CapabilityCacheEntry> _capabilityCache =
             new Dictionary<Guid, CapabilityCacheEntry>();
@@ -42,9 +44,14 @@ namespace PlayniteAchievements.Providers.GseLocal
             string pluginUserDataPath)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _ = settings ?? throw new ArgumentNullException(nameof(settings));
+            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _playniteApi = playniteApi ?? throw new ArgumentNullException(nameof(playniteApi));
             _iconMaterializer = new GseLocalIconMaterializer(pluginUserDataPath);
+            _steamSchemaClient = new GseSteamSchemaClient(
+                logger,
+                settings,
+                playniteApi,
+                pluginUserDataPath);
             _applicationDataDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             EnsureProviderNameResource();
         }
@@ -124,7 +131,7 @@ namespace PlayniteAchievements.Providers.GseLocal
             return await ProviderRefreshExecutor.RunProviderGamesAsync(
                 gamesToRefresh.Where(game => game != null).ToList(),
                 onGameStarting,
-                (game, token) =>
+                async (game, token) =>
                 {
                     token.ThrowIfCancellationRequested();
 
@@ -140,7 +147,7 @@ namespace PlayniteAchievements.Providers.GseLocal
                             location: null,
                             resolvedInstallDirectory: null,
                             installDirectoryCandidates));
-                        return Task.FromResult(ProviderRefreshExecutor.ProviderGameResult.Skipped());
+                        return ProviderRefreshExecutor.ProviderGameResult.Skipped();
                     }
 
                     var preferredAppId = NormalizeAppId(game.GameId);
@@ -151,7 +158,7 @@ namespace PlayniteAchievements.Providers.GseLocal
                             out var snapshot) ||
                         snapshot == null)
                     {
-                        return Task.FromResult(ProviderRefreshExecutor.ProviderGameResult.Skipped());
+                        return ProviderRefreshExecutor.ProviderGameResult.Skipped();
                     }
 
                     foreach (var diagnosticMessage in snapshot.Diagnostics)
@@ -161,9 +168,12 @@ namespace PlayniteAchievements.Providers.GseLocal
 
                     if (!snapshot.IsAuthoritative)
                     {
-                        return Task.FromResult(ProviderRefreshExecutor.ProviderGameResult.Skipped());
+                        return ProviderRefreshExecutor.ProviderGameResult.Skipped();
                     }
 
+                    // Preserve local icons first so every row has a stable offline fallback.
+                    // Official Steam URLs replace these paths only when the Web API schema
+                    // resolves and matches the same achievement API name.
                     var iconResult = _iconMaterializer.Materialize(game.Id, snapshot);
                     foreach (var diagnosticMessage in iconResult.Diagnostics)
                     {
@@ -171,17 +181,33 @@ namespace PlayniteAchievements.Providers.GseLocal
                     }
 
                     _logger.Debug(
-                        $"[GseLocal] Materialized icons for '{game.Name}': " +
+                        $"[GseLocal] Materialized local fallback icons for '{game.Name}': " +
                         $"achievements={iconResult.AchievementCount}, " +
                         $"unlocked={iconResult.UnlockedIconCount}, locked={iconResult.LockedIconCount}.");
+
+                    if (int.TryParse(snapshot.AppId, out var steamAppId) && steamAppId > 0)
+                    {
+                        var steamSchema = await _steamSchemaClient
+                            .GetSchemaAsync(steamAppId, token)
+                            .ConfigureAwait(false);
+                        var mergeResult = GseSteamSchemaEnricher.Apply(snapshot, steamSchema);
+
+                        if (mergeResult.Applied)
+                        {
+                            _logger.Info(
+                                $"[GseLocal] Enriched '{game.Name}' from Steam Web API schema: " +
+                                $"matched={mergeResult.MatchedAchievementCount}/" +
+                                $"{mergeResult.LocalAchievementCount}, appId={steamAppId}. " +
+                                "GSE unlock state remained authoritative.");
+                        }
+                    }
 
                     var data = Map(game, snapshot);
                     _logger.Debug(
                         $"[GseLocal] Loaded {data.Achievements?.Count ?? 0} achievements for '{game.Name}' " +
                         $"(AppID {snapshot.AppId}, root '{location.InstallDirectory}').");
 
-                    return Task.FromResult(
-                        new ProviderRefreshExecutor.ProviderGameResult { Data = data });
+                    return new ProviderRefreshExecutor.ProviderGameResult { Data = data };
                 },
                 onGameCompleted,
                 isAuthRequiredException: _ => false,
@@ -193,6 +219,11 @@ namespace PlayniteAchievements.Providers.GseLocal
         }
 
         public ProviderSettingsViewBase CreateSettingsView() => null;
+
+        public void Dispose()
+        {
+            _steamSchemaClient?.Dispose();
+        }
 
         private bool TryLocate(
             Game game,
@@ -418,7 +449,11 @@ namespace PlayniteAchievements.Providers.GseLocal
                     LockedIconPath = item.LockedIconPath,
                     Hidden = item.IsHidden,
                     Unlocked = item.IsUnlocked,
-                    UnlockTimeUtc = item.IsUnlocked ? item.UnlockTimeUtc : null
+                    UnlockTimeUtc = item.IsUnlocked ? item.UnlockTimeUtc : null,
+                    GlobalPercentUnlocked = item.GlobalPercentUnlocked,
+                    Rarity = item.GlobalPercentUnlocked.HasValue
+                        ? PercentRarityHelper.GetRarityTier(item.GlobalPercentUnlocked.Value)
+                        : RarityTier.Common
                 })
                 .ToList();
 
@@ -428,7 +463,7 @@ namespace PlayniteAchievements.Providers.GseLocal
                     ? DateTime.UtcNow
                     : snapshot.GeneratedAtUtc,
                 ProviderKey = Key,
-                LibrarySourceName = game.Source?.Name ?? ProviderDisplayName,
+                LibrarySourceName = ProviderDisplayName,
                 HasAchievements = achievements.Count > 0,
                 GameName = game.Name,
                 AppId = int.TryParse(snapshot.AppId, out var appId) ? appId : 0,
