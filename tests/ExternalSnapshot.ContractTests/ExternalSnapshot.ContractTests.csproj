@@ -15,6 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="..\..\source\Providers\ExternalSnapshot\ExternalSnapshotModels.cs"
              Link="Source\ExternalSnapshotModels.cs" />
     <Compile Include="..\..\source\Providers\ExternalSnapshot\ExternalSnapshotCatalogReader.cs"
@@ -27,5 +31,9 @@
              Link="Source\GseLocalModels.cs" />
     <Compile Include="..\..\source\Providers\GseLocal\GseLocalSourceReader.cs"
              Link="Source\GseLocalSourceReader.cs" />
+    <Compile Include="..\..\source\Providers\GseLocal\GseLocalIconMaterializer.cs"
+             Link="Source\GseLocalIconMaterializer.cs" />
+    <Compile Include="..\..\source\Services\Images\AchievementIconCachePathBuilder.cs"
+             Link="Source\AchievementIconCachePathBuilder.cs" />
   </ItemGroup>
 </Project>
