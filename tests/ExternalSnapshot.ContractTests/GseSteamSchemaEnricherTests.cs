@@ -76,7 +76,7 @@ namespace ExternalSnapshot.ContractTests
         }
 
         [TestMethod]
-        public void MapsGseStateWithRefreshTimeSoARecentSteamRowCannotRemainSelected()
+        public void UsesImportTimeForCacheRecencyWhilePreservingGseUnlockTime()
         {
             var sourceStateTime = new DateTime(2026, 7, 31, 4, 58, 43, DateTimeKind.Utc);
             var refreshTime = new DateTime(2026, 7, 31, 21, 35, 0, DateTimeKind.Utc);
