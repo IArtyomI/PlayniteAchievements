@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace PlayniteAchievements.Providers.GseLocal
 {
@@ -40,5 +41,27 @@ namespace PlayniteAchievements.Providers.GseLocal
         public bool IsUnlocked { get; set; }
         public DateTime? UnlockTimeUtc { get; set; }
         public double? GlobalPercentUnlocked { get; set; }
+    }
+
+    internal static class GseLocalRefreshPolicy
+    {
+        public static List<GseLocalAchievement> GetValidAchievements(GseLocalSnapshot snapshot)
+        {
+            return (snapshot?.Achievements ?? new List<GseLocalAchievement>())
+                .Where(item => item != null && !string.IsNullOrWhiteSpace(item.AchievementId))
+                .ToList();
+        }
+
+        public static DateTime ResolveRefreshUtc(DateTime refreshedAtUtc)
+        {
+            if (refreshedAtUtc == default(DateTime))
+            {
+                return DateTime.UtcNow;
+            }
+
+            return refreshedAtUtc.Kind == DateTimeKind.Utc
+                ? refreshedAtUtc
+                : refreshedAtUtc.ToUniversalTime();
+        }
     }
 }
