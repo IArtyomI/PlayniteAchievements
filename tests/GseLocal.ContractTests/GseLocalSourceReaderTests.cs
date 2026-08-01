@@ -5,7 +5,7 @@ using System;
 using System.IO;
 using System.Linq;
 
-namespace ExternalSnapshot.ContractTests
+namespace GseLocal.ContractTests
 {
     [TestClass]
     public sealed class GseLocalSourceReaderTests

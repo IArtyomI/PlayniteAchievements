@@ -5,7 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace ExternalSnapshot.ContractTests
+namespace GseLocal.ContractTests
 {
     [TestClass]
     public class GseSteamSchemaEnricherTests
@@ -59,6 +59,8 @@ namespace ExternalSnapshot.ContractTests
             Assert.AreEqual(55, result.SteamSchemaCount);
             Assert.AreEqual(55, result.MatchedAchievementCount);
             Assert.IsTrue(result.Applied);
+            Assert.AreEqual(1, snapshot.Achievements.Count(item => item.IsUnlocked));
+            Assert.AreEqual("1/55", $"{snapshot.Achievements.Count(item => item.IsUnlocked)}/{snapshot.Achievements.Count}");
 
             var conditioning = snapshot.Achievements.Find(item => item.AchievementId == "ACH_CONDITIONING");
             Assert.IsNotNull(conditioning);
@@ -73,6 +75,55 @@ namespace ExternalSnapshot.ContractTests
             var locked = snapshot.Achievements[0];
             Assert.IsFalse(locked.IsUnlocked);
             Assert.IsNull(locked.UnlockTimeUtc);
+        }
+
+        [TestMethod]
+        public void SteamPlayerStateCannotOverwriteGseRuntimeState()
+        {
+            var unlockTime = new DateTime(2026, 7, 31, 4, 58, 43, DateTimeKind.Utc);
+            var snapshot = new GseLocalSnapshot
+            {
+                AppId = "2863680",
+                StateKnown = true,
+                IsCompleteSnapshot = true,
+                Achievements = new List<GseLocalAchievement>
+                {
+                    new GseLocalAchievement
+                    {
+                        AchievementId = "ACH_CONDITIONING",
+                        DisplayName = "Local Conditioning",
+                        Description = "Local description",
+                        IsUnlocked = true,
+                        UnlockTimeUtc = unlockTime
+                    }
+                }
+            };
+
+            // The Steam schema is presentation-only. Even if a Steam player payload says this
+            // row is locked, that payload is not part of the GSE merge contract and cannot win.
+            var steamSchema = new SchemaAndPercentages
+            {
+                Achievements = new List<SchemaAchievement>
+                {
+                    new SchemaAchievement
+                    {
+                        Name = "ACH_CONDITIONING",
+                        DisplayName = "Official Conditioning",
+                        Description = "Official Steam description",
+                        Icon = "https://example.test/unlocked.png",
+                        IconGray = "https://example.test/locked.png"
+                    }
+                },
+                GlobalPercentages = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+            };
+
+            GseSteamSchemaEnricher.Apply(snapshot, steamSchema);
+
+            var conditioning = snapshot.Achievements.Single();
+            Assert.IsTrue(conditioning.IsUnlocked);
+            Assert.AreEqual(unlockTime, conditioning.UnlockTimeUtc);
+            Assert.AreEqual("Official Conditioning", conditioning.DisplayName);
+            Assert.AreEqual("Official Steam description", conditioning.Description);
         }
 
         [TestMethod]
@@ -144,6 +195,7 @@ namespace ExternalSnapshot.ContractTests
             var result = GseSteamSchemaEnricher.Apply(snapshot, null);
 
             Assert.AreEqual(0, result.MatchedAchievementCount);
+            Assert.AreEqual(1, result.LocalAchievementCount);
             Assert.AreEqual("Conditioning", before.DisplayName);
             Assert.AreEqual("Local description", before.Description);
             Assert.AreEqual(@"C:\game\steam_settings\img\conditioning.png", before.UnlockedIconPath);

@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <LangVersion>preview</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>GseLocal.ContractTests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="3.6.4" />
+    <PackageReference Include="MSTest.TestFramework" Version="3.6.4" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\source\Providers\GseLocal\GseLocalModels.cs"
+             Link="Source\GseLocalModels.cs" />
+    <Compile Include="..\..\source\Providers\GseLocal\GseLocalSourceReader.cs"
+             Link="Source\GseLocalSourceReader.cs" />
+    <Compile Include="..\..\source\Providers\GseLocal\GseLocalIconMaterializer.cs"
+             Link="Source\GseLocalIconMaterializer.cs" />
+    <Compile Include="..\..\source\Providers\GseLocal\GseSteamSchemaEnricher.cs"
+             Link="Source\GseSteamSchemaEnricher.cs" />
+    <Compile Include="..\..\source\Providers\Steam\Models\SteamApiResponseModels.cs"
+             Link="Source\SteamApiResponseModels.cs" />
+    <Compile Include="..\..\source\Services\Images\AchievementIconCachePathBuilder.cs"
+             Link="Source\AchievementIconCachePathBuilder.cs" />
+  </ItemGroup>
+</Project>
