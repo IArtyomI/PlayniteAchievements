@@ -127,6 +127,109 @@ namespace GseLocal.ContractTests
         }
 
         [TestMethod]
+        public void ReadsAppIdFromBoundedSteamSettingsConfigurationWithoutGameOverride()
+        {
+            using (var fixture = GseFixture.Create())
+            {
+                fixture.WriteSchema(includeTraversalIcon: false);
+                File.Delete(Path.Combine(fixture.SettingsDirectory, "steam_appid.txt"));
+                File.WriteAllText(
+                    Path.Combine(fixture.SettingsDirectory, "configs.app"),
+                    "appid=2863680\r\noffline=1\r\n");
+                fixture.WriteRuntime(includeSecondAchievement: true);
+
+                var reader = new GseLocalSourceReader();
+                Assert.IsTrue(reader.TryRead(
+                    fixture.InstallDirectory,
+                    fixture.ApplicationDataDirectory,
+                    string.Empty,
+                    out var snapshot));
+
+                Assert.IsTrue(snapshot.IsAuthoritative);
+                Assert.AreEqual(fixture.AppId, snapshot.AppId);
+            }
+        }
+
+        [TestMethod]
+        public void SupportedLegacyGoldbergSaveLayoutIsAuthoritative()
+        {
+            using (var fixture = GseFixture.Create())
+            {
+                fixture.WriteSchema(includeTraversalIcon: false);
+                fixture.WriteRuntime(includeSecondAchievement: true, useLegacyGoldbergLayout: true);
+
+                var reader = new GseLocalSourceReader();
+                Assert.IsTrue(reader.TryRead(
+                    fixture.InstallDirectory,
+                    fixture.ApplicationDataDirectory,
+                    string.Empty,
+                    out var snapshot));
+
+                Assert.IsTrue(snapshot.IsAuthoritative);
+                Assert.AreEqual(2, snapshot.Achievements.Count);
+                Assert.IsTrue(snapshot.Achievements.Single(item => item.AchievementId == "ACH_CONDITIONING").IsUnlocked);
+            }
+        }
+
+        [TestMethod]
+        public void UnrelatedGseSaveDoesNotHijackTheMatchingGame()
+        {
+            using (var fixture = GseFixture.Create())
+            {
+                fixture.WriteSchema(includeTraversalIcon: false);
+                fixture.WriteRuntimeForAppId("999999", includeSecondAchievement: true);
+
+                var reader = new GseLocalSourceReader();
+                Assert.IsTrue(reader.TryRead(
+                    fixture.InstallDirectory,
+                    fixture.ApplicationDataDirectory,
+                    fixture.AppId,
+                    out var snapshot));
+
+                Assert.IsFalse(snapshot.StateKnown);
+                Assert.IsFalse(snapshot.IsAuthoritative);
+                Assert.IsTrue(snapshot.RuntimePath.EndsWith(
+                    Path.Combine("GSE Saves", fixture.AppId, "achievements.json"),
+                    StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        [TestMethod]
+        public void AmbiguousSteamSettingsAppIdsAreRejected()
+        {
+            using (var fixture = GseFixture.Create())
+            {
+                fixture.WriteSchema(includeTraversalIcon: false);
+                File.WriteAllText(
+                    Path.Combine(fixture.SettingsDirectory, "configs.app"),
+                    "appid=999999\r\n");
+
+                var reader = new GseLocalSourceReader();
+
+                Assert.IsFalse(reader.TryLocate(
+                    fixture.InstallDirectory,
+                    fixture.ApplicationDataDirectory,
+                    string.Empty,
+                    out _));
+            }
+        }
+
+        [TestMethod]
+        public void GenericNonGseInstallIsNotDetected()
+        {
+            using (var fixture = GseFixture.Create())
+            {
+                var reader = new GseLocalSourceReader();
+
+                Assert.IsFalse(reader.TryRead(
+                    fixture.InstallDirectory,
+                    fixture.ApplicationDataDirectory,
+                    string.Empty,
+                    out _));
+            }
+        }
+
+        [TestMethod]
         public void MissingRuntimeStateRemainsNonAuthoritative()
         {
             using (var fixture = GseFixture.Create())
@@ -244,6 +347,10 @@ namespace GseLocal.ContractTests
                     "x86_64",
                     "steam_settings");
                 RuntimeDirectory = Path.Combine(ApplicationDataDirectory, "GSE Saves", AppId);
+                LegacyRuntimeDirectory = Path.Combine(
+                    ApplicationDataDirectory,
+                    "Goldberg SteamEmu Saves",
+                    AppId);
                 UnlockedIconPath = Path.Combine(SettingsDirectory, "img", "conditioning.jpg");
                 LockedIconPath = Path.Combine(SettingsDirectory, "img", "conditioning_locked.jpg");
 
@@ -262,6 +369,7 @@ namespace GseLocal.ContractTests
             public string PluginUserDataDirectory { get; }
             public string SettingsDirectory { get; }
             public string RuntimeDirectory { get; }
+            public string LegacyRuntimeDirectory { get; }
             public string UnlockedIconPath { get; }
             public string LockedIconPath { get; }
 
@@ -310,9 +418,23 @@ namespace GseLocal.ContractTests
                     schema.ToString());
             }
 
-            public void WriteRuntime(bool includeSecondAchievement)
+            public void WriteRuntime(bool includeSecondAchievement, bool useLegacyGoldbergLayout = false)
             {
-                Directory.CreateDirectory(RuntimeDirectory);
+                WriteRuntimeForDirectory(
+                    useLegacyGoldbergLayout ? LegacyRuntimeDirectory : RuntimeDirectory,
+                    includeSecondAchievement);
+            }
+
+            public void WriteRuntimeForAppId(string appId, bool includeSecondAchievement)
+            {
+                WriteRuntimeForDirectory(
+                    Path.Combine(ApplicationDataDirectory, "GSE Saves", appId),
+                    includeSecondAchievement);
+            }
+
+            private void WriteRuntimeForDirectory(string runtimeDirectory, bool includeSecondAchievement)
+            {
+                Directory.CreateDirectory(runtimeDirectory);
                 var runtime = new JObject
                 {
                     ["ACH_CONDITIONING"] = new JObject
@@ -332,7 +454,7 @@ namespace GseLocal.ContractTests
                 }
 
                 File.WriteAllText(
-                    Path.Combine(RuntimeDirectory, "achievements.json"),
+                    Path.Combine(runtimeDirectory, "achievements.json"),
                     runtime.ToString());
             }
 

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace PlayniteAchievements.Providers.GseLocal
 {
@@ -14,6 +15,24 @@ namespace PlayniteAchievements.Providers.GseLocal
         private const int MaximumAchievements = 10000;
         private const int MaximumDirectoriesScanned = 512;
         private const int MaximumDirectoryDepth = 6;
+        private const int MaximumAppIdConfigFiles = 16;
+        private const long MaximumAppIdConfigBytes = 64L * 1024L;
+
+        private static readonly string[] AppIdConfigurationFileNames =
+        {
+            "steam_appid.txt",
+            "steam_appid.ini",
+            "steam_appid.cfg",
+            "configs.app",
+            "configs.app.ini",
+            "settings.app",
+            "steam_settings.ini",
+            "steam_settings.cfg"
+        };
+
+        private static readonly Regex AppIdConfigurationPattern = new Regex(
+            @"^\s*[""']?(?:steam[_-]?)?app[_-]?id(?:64)?[""']?\s*[:=]\s*[""']?(?<appid>\d{1,10})[""']?\s*(?:[#;].*)?$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 
         private static readonly DateTime UnixEpochUtc =
             new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -40,7 +59,11 @@ namespace PlayniteAchievements.Providers.GseLocal
                     continue;
                 }
 
-                var settingsAppId = ReadAppId(settingsDirectory);
+                var settingsAppId = ReadAppId(settingsDirectory, out var ambiguousSettingsAppId);
+                if (ambiguousSettingsAppId)
+                {
+                    continue;
+                }
                 if (!string.IsNullOrWhiteSpace(normalizedPreferredAppId) &&
                     !string.IsNullOrWhiteSpace(settingsAppId) &&
                     !string.Equals(normalizedPreferredAppId, settingsAppId, StringComparison.Ordinal))
@@ -349,14 +372,56 @@ namespace PlayniteAchievements.Providers.GseLocal
                 : normalized.First();
         }
 
-        private static string ReadAppId(string settingsDirectory)
+        private static string ReadAppId(string settingsDirectory, out bool ambiguous)
         {
+            ambiguous = false;
+            var appIds = new HashSet<string>(StringComparer.Ordinal);
+
             try
             {
-                var path = Path.Combine(settingsDirectory, "steam_appid.txt");
-                return File.Exists(path)
-                    ? NormalizeAppId(File.ReadAllText(path))
-                    : string.Empty;
+                foreach (var fileName in AppIdConfigurationFileNames.Take(MaximumAppIdConfigFiles))
+                {
+                    var path = Path.Combine(settingsDirectory, fileName);
+                    if (!File.Exists(path))
+                    {
+                        continue;
+                    }
+
+                    var file = new FileInfo(path);
+                    if (file.Length > MaximumAppIdConfigBytes)
+                    {
+                        continue;
+                    }
+
+                    var contents = File.ReadAllText(path);
+                    if (string.Equals(fileName, "steam_appid.txt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var directAppId = NormalizeAppId(contents);
+                        if (!string.IsNullOrWhiteSpace(directAppId))
+                        {
+                            appIds.Add(directAppId);
+                        }
+
+                        continue;
+                    }
+
+                    foreach (Match match in AppIdConfigurationPattern.Matches(contents))
+                    {
+                        var configuredAppId = NormalizeAppId(match.Groups["appid"].Value);
+                        if (!string.IsNullOrWhiteSpace(configuredAppId))
+                        {
+                            appIds.Add(configuredAppId);
+                        }
+                    }
+                }
+
+                if (appIds.Count > 1)
+                {
+                    ambiguous = true;
+                    return string.Empty;
+                }
+
+                return appIds.FirstOrDefault() ?? string.Empty;
             }
             catch
             {
