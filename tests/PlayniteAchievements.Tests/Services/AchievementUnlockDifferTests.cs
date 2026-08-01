@@ -57,6 +57,41 @@ namespace PlayniteAchievements.Tests.Services
         }
 
         [TestMethod]
+        public void DiffUserUnlocks_OneOf55ToTwoOf55ProducesExactlyOneEventAndRestartProducesNone()
+        {
+            var beforeAchievements = Enumerable.Range(1, 55)
+                .Select(index => Achievement(
+                    "ACH_" + index.ToString("D2"),
+                    index == 1 ? "Conditioning" : index == 2 ? "The Whole Sick Crew" : "Achievement " + index,
+                    index == 1,
+                    index == 1 ? new DateTime(2026, 8, 1, 5, 0, 0, DateTimeKind.Utc) : null))
+                .ToArray();
+            var afterAchievements = beforeAchievements
+                .Select(achievement => new AchievementDetail
+                {
+                    ApiName = achievement.ApiName,
+                    DisplayName = achievement.DisplayName,
+                    Unlocked = achievement.Unlocked,
+                    UnlockTimeUtc = achievement.UnlockTimeUtc
+                })
+                .ToArray();
+            afterAchievements[1].Unlocked = true;
+            afterAchievements[1].UnlockTimeUtc = new DateTime(2026, 8, 1, 5, 1, 0, DateTimeKind.Utc);
+
+            var differ = new AchievementUnlockDiffer();
+            var liveEvents = differ.DiffUserUnlocks(
+                Data(beforeAchievements),
+                Data(afterAchievements));
+            var restartEvents = new AchievementUnlockDiffer().DiffUserUnlocks(
+                Data(afterAchievements),
+                Data(afterAchievements));
+
+            Assert.AreEqual(1, liveEvents.Count);
+            Assert.AreEqual("The Whole Sick Crew", liveEvents[0].DisplayName);
+            Assert.AreEqual(0, restartEvents.Count);
+        }
+
+        [TestMethod]
         public void DiffFriendSessionUnlocks_FiltersBySessionStartAndDedupeSet()
         {
             var differ = new AchievementUnlockDiffer();

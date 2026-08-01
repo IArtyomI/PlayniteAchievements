@@ -81,15 +81,23 @@ namespace PlayniteAchievements.Providers.GseLocal
                 }
             }
 
-            // Requiring the runtime achievements.json prevents an empty AppID directory or
-            // playtime.txt-only setup from shadowing the normal Steam provider. GSE becomes
-            // authoritative only after it has published complete earned/locked state.
+            // Requiring a complete parsed runtime snapshot prevents an empty AppID directory,
+            // playtime.txt-only setup, stale state, or incomplete state from shadowing Steam.
+            // GSE becomes authoritative only after it has published every schema achievement.
             var located = TryLocate(
                 game,
                 out var location,
                 out var resolvedInstallDirectory,
                 out var installDirectoryCandidates);
-            var capable = located && location.RuntimeStateExists;
+            var capable = located &&
+                location.RuntimeStateExists &&
+                _reader.TryRead(
+                    resolvedInstallDirectory,
+                    _applicationDataDirectory,
+                    NormalizeAppId(game.GameId),
+                    out var snapshot) &&
+                snapshot != null &&
+                snapshot.IsAuthoritative;
 
             var diagnostic = BuildCapabilityDiagnostic(
                 game,
