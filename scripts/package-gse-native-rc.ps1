@@ -142,11 +142,10 @@ Write-Host "Packaging with Playnite Toolbox: $toolbox" -ForegroundColor Cyan
 & $toolbox pack $outputPath $distPath
 Assert-ExitCode 'Playnite Toolbox pack'
 
-$package = Get-ChildItem -LiteralPath $distPath -Filter '*.pext' -File |
-    Sort-Object LastWriteTimeUtc -Descending |
-    Select-Object -First 1
+$packageName = "PlayniteAchievements_$($manifestVersion.Replace('.', '_')).pext"
+$package = Get-Item -LiteralPath (Join-Path $distPath $packageName) -ErrorAction SilentlyContinue
 if ($null -eq $package) {
-    throw "Playnite Toolbox did not create a .pext in $distPath."
+    throw "Playnite Toolbox did not create the expected $packageName in $distPath."
 }
 
 $hash = (Get-FileHash -LiteralPath $package.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
