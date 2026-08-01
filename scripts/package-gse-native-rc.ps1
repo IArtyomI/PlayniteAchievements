@@ -35,21 +35,14 @@ function Resolve-Toolbox([string]$requestedPath) {
         $candidates += $requestedPath
     }
 
-    $candidates += @(
-        (Join-Path ${env:ProgramFiles} 'Playnite\toolbox.exe'),
-        (Join-Path ${env:LOCALAPPDATA} 'Playnite\toolbox.exe'),
-        'C:\Playnite_dev\toolbox.exe',
-        'C:\Projects\Playnite_dev\toolbox.exe',
-        'D:\Playnite_dev\toolbox.exe',
-        'D:\Projects\Playnite_dev\toolbox.exe',
-        'F:\Playnite_dev\toolbox.exe',
-        'G:\Playnite_dev\toolbox.exe'
-    )
+    $playniteRoots = @(
+        ${env:ProgramFiles},
+        ${env:ProgramFiles(x86)},
+        ${env:LOCALAPPDATA}
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
 
-    $candidates += Get-ChildItem -Path @(
-        (Join-Path ${env:ProgramFiles} 'Playnite'),
-        (Join-Path ${env:LOCALAPPDATA} 'Playnite')
-    ) -Filter 'toolbox.exe' -File -Recurse -ErrorAction SilentlyContinue |
+    $candidates += $playniteRoots | ForEach-Object { Join-Path $_ 'Playnite\toolbox.exe' }
+    $candidates += Get-ChildItem -Path ($playniteRoots | ForEach-Object { Join-Path $_ 'Playnite' }) -Filter 'toolbox.exe' -File -Recurse -ErrorAction SilentlyContinue |
         Select-Object -ExpandProperty FullName
 
     foreach ($candidate in $candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique) {
@@ -77,10 +70,13 @@ $nuget = Resolve-Executable 'nuget.exe'
 
 $msbuild = Resolve-Executable 'msbuild.exe'
 if ($null -eq $msbuild) {
-    $msbuild = Get-ChildItem -Path @(
-        'C:\Program Files\Microsoft Visual Studio',
-        'C:\Program Files (x86)\Microsoft Visual Studio'
-    ) -Filter 'MSBuild.exe' -File -Recurse -ErrorAction SilentlyContinue |
+    $visualStudioRoots = @(
+        ${env:ProgramFiles},
+        ${env:ProgramFiles(x86)}
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { Join-Path $_ 'Microsoft Visual Studio' } |
+        Select-Object -Unique
+    $msbuild = Get-ChildItem -Path $visualStudioRoots -Filter 'MSBuild.exe' -File -Recurse -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -match '\\MSBuild\\Current\\Bin\\MSBuild\.exe$' } |
         Select-Object -ExpandProperty FullName -First 1
 }

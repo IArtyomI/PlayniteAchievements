@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$PackagePath,
-    [string]$PlayniteProfile = (Join-Path $env:APPDATA 'Playnite'),
-    [string]$InstallDirectory = 'C:\Games\Zero Parades',
+    [string]$PlayniteProfile,
+    [string]$GameInstallPath,
     [string]$AppId = '2863680',
     [string]$ExpectedVersion = '3.0.1'
 )
@@ -14,6 +14,16 @@ $expectedId = 'PlayniteAchievements'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($PackagePath)) {
     $PackagePath = Join-Path $repositoryRoot 'dist\PlayniteAchievements_3_0_1.pext'
+}
+if ([string]::IsNullOrWhiteSpace($PlayniteProfile)) {
+    if ([string]::IsNullOrWhiteSpace($env:APPDATA)) {
+        throw 'Playnite profile could not be discovered automatically. Re-run with -PlayniteProfile <Playnite-profile-directory>.'
+    }
+
+    $PlayniteProfile = Join-Path $env:APPDATA 'Playnite'
+}
+if ([string]::IsNullOrWhiteSpace($GameInstallPath)) {
+    throw 'Game install path could not be discovered automatically. Re-run with -GameInstallPath <ZERO-PARADES-install-directory>.'
 }
 $extensionsPath = Join-Path $PlayniteProfile 'Extensions'
 $extensionsDataPath = Join-Path $PlayniteProfile 'ExtensionsData'
@@ -151,7 +161,7 @@ Report 'Steam schema enrichment succeeded' ($logText -match '(?i)Enriched .*matc
 Report 'ZERO PARADES contains 55 achievements' ($logText -match "(?i)Loaded 55 achievements for 'ZERO PARADES For Dead Spies'") 'Playnite log contains the 55-row load'
 Report 'Unlocked count is 1' ($logText -match "(?i)Loaded 55 achievements for 'ZERO PARADES For Dead Spies' with unlocked=1") 'Playnite log contains unlocked=1'
 
-$settingsDirectory = Find-SteamSettings $InstallDirectory $AppId
+$settingsDirectory = Find-SteamSettings $GameInstallPath $AppId
 $schema = $null
 $runtime = $null
 $schemaCount = 0

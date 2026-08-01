@@ -2,8 +2,8 @@
 param(
     [string]$PackagePath,
     [string]$ExpectedSha256,
-    [string]$PlayniteProfile = (Join-Path $env:APPDATA 'Playnite'),
-    [string]$DevelopmentRoot = 'C:\Users\Artyom\Documents\PlayniteDev',
+    [string]$PlayniteProfile,
+    [string]$DevelopmentRoot,
     [string]$ExpectedVersion = '3.0.1',
     [switch]$Apply
 )
@@ -15,6 +15,13 @@ $expectedId = 'PlayniteAchievements'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($PackagePath)) {
     $PackagePath = Join-Path $repositoryRoot 'dist\PlayniteAchievements_3_0_1.pext'
+}
+if ([string]::IsNullOrWhiteSpace($PlayniteProfile)) {
+    if ([string]::IsNullOrWhiteSpace($env:APPDATA)) {
+        throw 'Playnite profile could not be discovered automatically. Re-run with -PlayniteProfile <Playnite-profile-directory>.'
+    }
+
+    $PlayniteProfile = Join-Path $env:APPDATA 'Playnite'
 }
 $extensionsPath = Join-Path $PlayniteProfile 'Extensions'
 $extensionsDataPath = Join-Path $PlayniteProfile 'ExtensionsData'
@@ -97,7 +104,7 @@ function Get-DevelopmentConflicts {
         }
     }
 
-    if (Test-Path -LiteralPath $Root -PathType Container) {
+    if (-not [string]::IsNullOrWhiteSpace($Root) -and (Test-Path -LiteralPath $Root -PathType Container)) {
         $launchFiles = @(Get-ChildItem -LiteralPath $Root -Recurse -File -ErrorAction SilentlyContinue |
             Where-Object { $_.Extension -in @('.cmd', '.bat', '.ps1', '.json', '.xml', '.ini') })
         foreach ($file in $launchFiles) {
@@ -182,7 +189,14 @@ else {
     Write-Check 'Playnite closed' $true 'No Playnite.DesktopApp.exe process detected.'
 }
 
-$developmentConflicts = @(Get-DevelopmentConflicts $DevelopmentRoot)
+$developmentRoots = @()
+if (-not [string]::IsNullOrWhiteSpace($DevelopmentRoot)) {
+    $developmentRoots += $DevelopmentRoot
+}
+if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+    $developmentRoots += Join-Path $env:USERPROFILE 'Documents\PlayniteDev'
+}
+$developmentConflicts = @($developmentRoots | Select-Object -Unique | ForEach-Object { Get-DevelopmentConflicts $_ })
 if ($developmentConflicts.Count -gt 0) {
     foreach ($conflict in $developmentConflicts) { Write-Host "Development conflict: $conflict" -ForegroundColor Yellow }
     Write-Check 'Development build stopped' $false 'Stop using the listed Debug/development launcher or configuration, then rerun.'
